@@ -1,6 +1,8 @@
-# Welcome to your CDK TypeScript project
+# HuginBot
 
-This is a blank project for CDK development with TypeScript.
+This is an AWS CDK project to host the llosche docker container for valheim.
+
+The goal of the project is to get an easy CLI interface to spin up worlds and a host of handy accompanying lambda functions and finally HuginBot a helpful discord companion to let your players start/stop the game server whenever they want!
 
 The `cdk.json` file tells the CDK Toolkit how to execute your app.
 
