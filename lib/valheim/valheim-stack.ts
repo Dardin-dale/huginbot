@@ -1,6 +1,6 @@
 import { Annotations, CfnOutput, Stack, StackProps } from "aws-cdk-lib";
 import { Port, SubnetType, Vpc } from "aws-cdk-lib/aws-ec2";
-import { Cluster, Compatibility, ContainerImage, FargatePlatformVersion, FargateService, LogDrivers, MountPoint, NetworkMode, Protocol, Secret, TaskDefinition, Volume } from "aws-cdk-lib/aws-ecs";
+import { Cluster, Compatibility, ContainerImage, Ec2Service, FargatePlatformVersion, FargateService, LogDrivers, MountPoint, NetworkMode, Protocol, Secret, TaskDefinition, Volume } from "aws-cdk-lib/aws-ecs";
 import { FileSystem } from "aws-cdk-lib/aws-efs";
 import { Bucket } from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
@@ -23,22 +23,24 @@ const ACTUAL_VALHEIM_WORLD_LOCATION = "/config/";
 
 export class ValheimServerAwsCdkStack extends Stack {
 
-  readonly valheimService: FargateService;
+  /* readonly valheimService: FargateService; */
+  readonly valheimService: Ec2Service;
   readonly fargateCluster: Cluster;
 
-  constructor(scope: Construct, id: string, props?: ValheimServerAwsCdkStackProps) {
+constructor(scope: Construct, id: string, props?: ValheimServerAwsCdkStackProps) {
     super(scope, id, props);
 
     if (props && props.worldBootstrapLocation && !props.worldResourcesBucket) {
       Annotations.of(this).addError("worldResourcesBucket must be set if worldBootstrapLocation is set!");
     }
 
-    // MUST BE DEFINED BEFORE RUNNING CDK DEPLOY! Key Value should be: VALHEIM_SERVER_PASS
-    const valheimServerPass = SecretsManagerSecret.fromSecretNameV2(
-      this,
-      "predefinedValheimServerPass",
-      "valheimServerPass"
-    );
+    /* // MUST BE DEFINED BEFORE RUNNING CDK DEPLOY! Key Value should be: VALHEIM_SERVER_PASS */
+    // GRAB from CLI, AWS Secrets seem to cost too much to be worth it.
+    /* const valheimServerPass = SecretsManagerSecret.fromSecretNameV2( */
+    /*   this, */
+    /*   "predefinedValheimServerPass", */
+    /*   "valheimServerPass" */
+    /* ); */
 
     const vpc = new Vpc(this, "valheimVpc", {
       cidr: "10.0.0.0/24",
@@ -53,14 +55,29 @@ export class ValheimServerAwsCdkStack extends Stack {
       enableDnsSupport: true,
       enableDnsHostnames: true,
     });
-    this.fargateCluster = new Cluster(this, "fargateCluster", {
-      vpc: vpc,
+
+    // ... (VPC and other configurations)
+    // Create an Auto Scaling Group with Spot Instances
+    const autoScalingGroup = new ec2.AutoScalingGroup(this, 'ASG', {
+      vpc,
+      instanceType: ec2.InstanceType.of(ec2.InstanceClass.T3, ec2.InstanceSize.MICRO),
+      machineImage: ec2.MachineImage.latestAmazonLinux(),
+      spotPrice: '0.037', // Set your spot price
+      // ... other configurations ...
     });
 
+    // Create an ECS Cluster and add your Auto Scaling Group
+    const cluster = new ecs.Cluster(this, 'Cluster', { vpc });
+    cluster.addAutoScalingGroup(autoScalingGroup);
+
+
+    //should just be the 
     const serverFileSystem = new FileSystem(this, "valheimServerStorage", {
       vpc: vpc,
       encrypted: true,
     });
+
+    //TODO All of this should go into the spin up lamda
 
     const serverVolumeConfig: Volume = {
       name: "valheimServerVolume",
@@ -77,9 +94,9 @@ export class ValheimServerAwsCdkStack extends Stack {
 
     const valheimTaskDefinition = new TaskDefinition(
       this,
-      "valheimTaskDefinition",
+      "valheimTaskDefinition",//
       {
-        compatibility: Compatibility.FARGATE,
+        compatibility: Compatibility.EC2,
         cpu: "2048",
         memoryMiB: "4096",
         volumes: [serverVolumeConfig],
@@ -94,8 +111,8 @@ export class ValheimServerAwsCdkStack extends Stack {
     // Valheim server environment variables
     // https://github.com/lloesche/valheim-server-docker#environment-variables
     const environment: Record<string, string> = Object.entries(process.env)
-      .filter(([key]) => key.startsWith("VALHEIM_DOCKER_"))
-      .reduce((a, [k, v]) => ({ ...a, [k.replace("VALHEIM_DOCKER_", "")]: v}), {});
+      .filter(([key]) => key.startsWith("DOCKER_"))
+      .reduce((a, [k, v]) => ({ ...a, [k.replace("DOCKER_", "")]: v}), {});
 
     if (props && props.worldResourcesBucket) {
       environment["PRE_SUPERVISOR_HOOK"] = "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get -y install awscli";
@@ -134,6 +151,21 @@ export class ValheimServerAwsCdkStack extends Stack {
         containerPort: 2458,
         hostPort: 2458,
         protocol: Protocol.UDP,
+      },
+      {
+        containerPort: 2456,
+        hostPort: 2456,
+        protocol: Protocol.TCP,
+      },
+      {
+        containerPort: 2457,
+        hostPort: 2457,
+        protocol: Protocol.TCP,
+      },
+      {
+        containerPort: 2458,
+        hostPort: 2458,
+        protocol: Protocol.TCP,
       }
     );
 
@@ -158,21 +190,9 @@ export class ValheimServerAwsCdkStack extends Stack {
         toPort: 2458,
       })
     );
-  }
+    }
 }
-// ... (VPC and other configurations)
-// Create an Auto Scaling Group with Spot Instances
-const autoScalingGroup = new ec2.AutoScalingGroup(this, 'ASG', {
-  vpc,
-  instanceType: ec2.InstanceType.of(ec2.InstanceClass.T3, ec2.InstanceSize.MICRO),
-  machineImage: ec2.MachineImage.latestAmazonLinux(),
-  spotPrice: '0.037', // Set your spot price
-  // ... other configurations ...
-});
 
-// Create an ECS Cluster and add your Auto Scaling Group
-const cluster = new ecs.Cluster(this, 'Cluster', { vpc });
-cluster.addAutoScalingGroup(autoScalingGroup);
+//TODO ADD this to the stack-configuration above
 
-// Define your ECS Task Definition and Service as usual
 
