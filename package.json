@@ -1,5 +1,5 @@
 {
-  "name": "valheim-ec2-cdk",
+  "name": "huginbot",
   "version": "0.1.0",
   "bin": {
     "valheim-ec2-cdk": "bin/valheim-ec2-cdk.js"
@@ -9,11 +9,18 @@
     "watch": "tsc -w",
     "test": "jest",
     "cdk": "cdk",
-    "cli": "node cli.mjs"
+    "cli": "node cli.mjs",
+    "start:local": "node cli.mjs --local",
+    "deploy:valheim": "cdk deploy ValheimStack",
+    "deploy:discord": "cdk deploy HuginbotStack",
+    "deploy:all": "cdk deploy --all"
   },
   "devDependencies": {
+    "@types/aws-lambda": "^8.10.119",
+    "@types/express": "^4.17.17",
     "@types/jest": "^29.5.8",
     "@types/node": "20.9.1",
+    "@types/ws": "^8.5.5",
     "aws-cdk": "2.114.1",
     "jest": "^29.7.0",
     "ts-jest": "^29.1.1",
@@ -22,11 +29,18 @@
   },
   "dependencies": {
     "@aws-sdk/client-cloudformation": "^3.470.0",
+    "@aws-sdk/client-ec2": "^3.470.0",
     "@aws-sdk/client-s3": "^3.470.0",
+    "@aws-sdk/client-ssm": "^3.470.0",
     "aws-cdk-lib": "2.114.1",
+    "aws-lambda": "^1.0.7",
     "aws-sdk": "^2.1515.0",
+    "axios": "^1.4.0",
     "constructs": "^10.0.0",
+    "discord.js": "^14.13.0",
+    "express": "^4.18.2",
     "inquirer": "^9.2.12",
-    "source-map-support": "^0.5.21"
+    "source-map-support": "^0.5.21",
+    "ws": "^8.13.0"
   }
 }

@@ -1,0 +1,226 @@
+{
+    "taskDefinitionArn": "arn:aws:ecs:us-west-2:770508626944:task-definition/ValheimServerValheimServerAwsCdkStackvalheimTaskDefinitionBED3A840:16",
+    "containerDefinitions": [
+        {
+            "name": "valheimContainer",
+            "image": "lloesche/valheim-server",
+            "cpu": 0,
+            "portMappings": [
+                {
+                    "containerPort": 2456,
+                    "hostPort": 2456,
+                    "protocol": "udp"
+                },
+                {
+                    "containerPort": 2458,
+                    "hostPort": 2458,
+                    "protocol": "udp"
+                },
+                {
+                    "containerPort": 2457,
+                    "hostPort": 2457,
+                    "protocol": "udp"
+                },
+                {
+                    "name": "valheimcontainer-2456-tcp",
+                    "containerPort": 2456,
+                    "hostPort": 2456,
+                    "protocol": "tcp",
+                    "appProtocol": "http"
+                },
+                {
+                    "name": "valheimcontainer-2457-tcp",
+                    "containerPort": 2457,
+                    "hostPort": 2457,
+                    "protocol": "tcp",
+                    "appProtocol": "http"
+                },
+                {
+                    "name": "valheimcontainer-2458-tcp",
+                    "containerPort": 2458,
+                    "hostPort": 2458,
+                    "protocol": "tcp",
+                    "appProtocol": "http"
+                },
+                {
+                    "name": "valheimcontainer-80-tcp",
+                    "containerPort": 80,
+                    "hostPort": 80,
+                    "protocol": "tcp",
+                    "appProtocol": "http"
+                }
+            ],
+            "essential": true,
+            "environment": [
+                {
+                    "name": "BACKUPS_DIRECTORY",
+                    "value": "/config/backups"
+                },
+                {
+                    "name": "BACKUPS_FILE_PERMISSIONS",
+                    "value": "644"
+                },
+                {
+                    "name": "STEAMCMD_ARGS",
+                    "value": "validate"
+                },
+                {
+                    "name": "BEPINEX",
+                    "value": "true"
+                },
+                {
+                    "name": "TZ",
+                    "value": "America/Los_Angeles"
+                },
+                {
+                    "name": "UPDATE_INTERVAL",
+                    "value": "900"
+                },
+                {
+                    "name": "WORLDS_DIRECTORY_PERMISSIONS",
+                    "value": "755"
+                },
+                {
+                    "name": "BACKUPS_DIRECTORY_PERMISSIONS",
+                    "value": "755"
+                },
+                {
+                    "name": "CONFIG_DIRECTORY_PERMISSIONS",
+                    "value": "755"
+                },
+                {
+                    "name": "WORLDS_FILE_PERMISSIONS",
+                    "value": "644"
+                },
+                {
+                    "name": "WORLD_NAME",
+                    "value": "GjurdsIHOP"
+                },
+                {
+                    "name": "SERVER_ARGS",
+                    "value": "-crossplay -modifier resources more"
+                },
+                {
+                    "name": "SERVER_PASS",
+                    "value": "seabuds"
+                },
+                {
+                    "name": "ADMINLIST_IDS",
+                    "value": "76561198073817655 76561198020958176 76561198045855309"
+                },
+                {
+                    "name": "PRE_START_HOOK",
+                    "value": "if [[ ! -d /config/worlds_local/ ]]; then aws s3 cp --recursive s3://valheimserverworldbootstra-worldresourcese517761d-pkf4b8lki3a0/ /config/; else echo \"Skipping copy from S3 because /config/worlds_local/ already exists\"; fi"
+                },
+                {
+                    "name": "PRE_SUPERVISOR_HOOK",
+                    "value": "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get -y install awscli"
+                },
+                {
+                    "name": "DNS_1",
+                    "value": "10.0.0.2"
+                },
+                {
+                    "name": "SERVER_PUBLIC",
+                    "value": "true"
+                },
+                {
+                    "name": "SERVER_NAME",
+                    "value": "GjurdsIHOP"
+                },
+                {
+                    "name": "BACKUPS_INTERVAL",
+                    "value": "3600"
+                },
+                {
+                    "name": "DNS_2",
+                    "value": "10.0.0.2"
+                },
+                {
+                    "name": "BACKUPS_MAX_AGE",
+                    "value": "3"
+                }
+            ],
+            "mountPoints": [
+                {
+                    "sourceVolume": "valheimServerVolume",
+                    "containerPath": "/config",
+                    "readOnly": false
+                },
+                {
+                    "sourceVolume": "valheimServerVolume",
+                    "containerPath": "/opt/valheim",
+                    "readOnly": false
+                }
+            ],
+            "volumesFrom": [],
+            "logConfiguration": {
+                "logDriver": "awslogs",
+                "options": {
+                    "awslogs-group": "ValheimServerValheimServerAwsCdkStackDE1BD991-valheimTaskDefinitionvalheimContainerLogGroup54F9CCFE-a8HYVNvZS1Up",
+                    "awslogs-region": "us-west-2",
+                    "awslogs-stream-prefix": "ValheimServer"
+                },
+                "secretOptions": []
+            },
+            "systemControls": []
+        }
+    ],
+    "family": "ValheimServerValheimServerAwsCdkStackvalheimTaskDefinitionBED3A840",
+    "taskRoleArn": "arn:aws:iam::770508626944:role/ValheimServerValheimServe-valheimTaskDefinitionTas-9G59YKBAPBQQ",
+    "executionRoleArn": "arn:aws:iam::770508626944:role/ValheimServerValheimServe-valheimTaskDefinitionExe-1M0OXFTEDNWMB",
+    "networkMode": "awsvpc",
+    "revision": 16,
+    "volumes": [
+        {
+            "name": "valheimServerVolume",
+            "efsVolumeConfiguration": {
+                "fileSystemId": "fs-03d88f4ec4ca60ffc",
+                "rootDirectory": "/"
+            }
+        }
+    ],
+    "status": "ACTIVE",
+    "requiresAttributes": [
+        {
+            "name": "com.amazonaws.ecs.capability.logging-driver.awslogs"
+        },
+        {
+            "name": "ecs.capability.execution-role-awslogs"
+        },
+        {
+            "name": "ecs.capability.efsAuth"
+        },
+        {
+            "name": "com.amazonaws.ecs.capability.docker-remote-api.1.19"
+        },
+        {
+            "name": "ecs.capability.efs"
+        },
+        {
+            "name": "com.amazonaws.ecs.capability.task-iam-role"
+        },
+        {
+            "name": "com.amazonaws.ecs.capability.docker-remote-api.1.25"
+        },
+        {
+            "name": "com.amazonaws.ecs.capability.docker-remote-api.1.18"
+        },
+        {
+            "name": "ecs.capability.task-eni"
+        }
+    ],
+    "placementConstraints": [],
+    "compatibilities": [
+        "EC2",
+        "FARGATE"
+    ],
+    "requiresCompatibilities": [
+        "FARGATE"
+    ],
+    "cpu": "2048",
+    "memory": "4096",
+    "registeredAt": "2025-01-14T03:35:43.476Z",
+    "registeredBy": "arn:aws:iam::770508626944:user/logan-aws-admin",
+    "tags": []
+}
