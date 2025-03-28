@@ -1,0 +1,850 @@
+# Technical Specifications Document
+## AWS-Hosted Valheim Server with Discord Integration
+
+### 1. System Overview
+
+#### 1.1 Project Purpose
+This system allows multiple Discord communities to deploy, manage, and access Valheim game servers hosted on AWS infrastructure. Players can start and stop game servers directly through Discord commands, with automatic resource management for cost optimization.
+
+#### 1.2 Core Requirements
+- Allow Discord users to start/stop Valheim servers through bot commands
+- Support multiple Discord communities with isolated game worlds
+- Automatically shut down idle servers to minimize costs
+- Provide server join codes directly in Discord when servers start
+- Maintain world data persistence between server sessions
+- Implement appropriate access controls for server management commands
+
+#### 1.3 Success Criteria
+- Server spin-up time under 3 minutes from Discord command to playable state
+- Automatic shutdown of idle servers after 5 minutes of inactivity
+- 99.9% uptime for the Discord bot command interface
+- Proper isolation between different Discord community game data
+- Average monthly AWS costs under $50 for infrastructure
+
+### 2. System Architecture
+
+#### 2.1 High-Level Architecture Diagram
+```
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│                 │     │                 │     │                 │
+│  Discord Users  │◄────┤  Discord Bot    │◄────┤  AWS Lambda     │
+│                 │     │  (AWS t4g.nano) │     │  Functions      │
+│                 │     │                 │     │                 │
+└─────────────────┘     └─────────────────┘     └────────┬────────┘
+                                                         │
+                                                         ▼
+                                               ┌─────────────────┐     ┌─────────────────┐
+                                               │                 │     │                 │
+                                               │  EC2 Instance   │────►│  Route 53 DNS   │
+                                               │  with Docker    │     │  (gjurdsihop.net)│
+                                               │                 │     │                 │
+                                               └────────┬────────┘     └─────────────────┘
+                                                        │
+                                                        ▼
+                                               ┌─────────────────┐
+                                               │                 │
+                                               │  EBS Volumes    │
+                                               │  (World Data)   │
+                                               │                 │
+                                               └─────────────────┘
+```
+
+#### 2.2 Component Overview
+The system consists of five primary components:
+1. **Discord Bot**: Interfaces with users in Discord servers, processes commands
+2. **AWS Lambda Functions**: Manages EC2 resources and responds to Discord commands
+3. **EC2 Instance**: Hosts Docker containers running Valheim servers
+4. **Docker Containers**: Isolated environments for each Valheim server
+5. **CloudWatch**: Monitors server activity and triggers automatic shutdown
+
+### 3. Component Specifications
+
+#### 3.1 EC2 Instance
+
+**EC2 Configuration:**
+- Instance Type: t3.large (2 vCPU, 8GB RAM)
+- AMI: Amazon Linux 2
+- Storage: 30GB root volume + separate EBS volumes for game data
+- Security Group: 
+  - SSH: Port 22 (restricted to admin IPs)
+  - Valheim: Ports 2456-2458 (UDP) for each container (mapped differently)
+- IAM Role: EC2ValheimServerRole (permissions for S3, CloudWatch)
+
+**Initialization Requirements:**
+- Docker Engine installation
+- CloudWatch agent installation
+- AWS CLI installation
+- Startup script to handle container management
+
+#### 3.2 Docker Configuration
+
+**Base Container Setup:**
+```dockerfile
+FROM cm2network/steamcmd:root
+
+# Install dependencies
+RUN apt-get update && apt-get install -y \
+    lib32gcc1 \
+    libsdl2-2.0-0 \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set up Valheim server
+RUN mkdir -p /valheim/server /valheim/config /valheim/data
+
+# Add server startup script
+COPY ./start_valheim.sh /valheim/
+RUN chmod +x /valheim/start_valheim.sh
+
+# Server ports
+EXPOSE 2456-2458/udp
+
+# Start the server
+ENTRYPOINT ["/valheim/start_valheim.sh"]
+```
+
+**Container Deployment Strategy:**
+- One container per Discord community
+- Configurable through environment variables:
+  - SERVER_NAME
+  - WORLD_NAME
+  - SERVER_PASSWORD
+  - ADMIN_IDS
+- Persistent volume mounts:
+  - `/valheim/config:/config`
+  - `/valheim/data:/opt/valheim/data`
+
+**Container Naming Convention:**
+- Format: `valheim-{discord_guild_id}`
+- Example: `valheim-123456789012345678`
+
+#### 3.3 Lambda Functions
+
+**Server Control Lambda:**
+- Runtime: Python 3.9
+- Memory: 128MB
+- Timeout: 30 seconds
+- Trigger: API Gateway (POST endpoints for Discord bot)
+- Required Permissions:
+  - EC2 start/stop instances
+  - EC2 describe instances
+  - SSM SendCommand
+  - CloudWatch GetMetricData
+
+**Functions:**
+- `start_server(guild_id)`: Starts EC2 and specific Docker container
+- `stop_server(guild_id)`: Stops specific Docker container
+- `get_server_status(guild_id)`: Returns current server status
+- `get_join_code(guild_id)`: Retrieves Playfab join code
+
+**Activity Monitoring Lambda:**
+- Runtime: Python 3.9
+- Memory: 128MB
+- Timeout: 30 seconds
+- Trigger: CloudWatch Events (every 5 minutes)
+- Required Permissions:
+  - EC2 describe instances
+  - EC2 stop instances
+  - SSM SendCommand
+  - CloudWatch GetMetricData
+
+**Logic:**
+- Check CloudWatch metrics for player activity
+- If no players detected for 5+ minutes, execute shutdown sequence
+- Send notification to Discord when server is shutting down
+
+**World Backup Lambda:**
+- Runtime: Python 3.9
+- Memory: 256MB
+- Timeout: 120 seconds
+- Trigger: 
+  - Scheduled CloudWatch Events (daily)
+  - On-demand via API Gateway (CLI and Discord commands)
+- Required Permissions:
+  - S3 PutObject, GetObject, ListObjects
+  - EC2 DescribeInstances
+  - SSM SendCommand
+  - SES SendEmail (for backup notifications)
+
+**Functions:**
+- `backup_world(guild_id, backup_name=None)`: Creates backup of world data to S3
+- `list_backups(guild_id)`: Lists all available backups for a guild
+- `restore_backup(guild_id, backup_id)`: Restores a specific backup
+- `schedule_backup(guild_id, cron_expression)`: Sets up custom backup schedule
+
+**S3 Management Lambda:**
+- Runtime: Python 3.9
+- Memory: 128MB
+- Timeout: 30 seconds
+- Trigger: CloudWatch Events (weekly)
+- Required Permissions:
+  - S3 full access to backup bucket
+  - SES SendEmail
+
+**Logic:**
+- Manage backup retention policies
+- Clean up old backups based on retention settings
+- Generate backup reports and statistics
+
+#### 3.4 Discord Bot (HuginBot)
+
+**Bot Specifications:**
+- Language: Node.js 16.x
+- Framework: discord.js v14
+- Hosting: AWS t4g.nano EC2 instance deployed with CDK
+- systemd service for automatic restart and process management
+
+**Commands:**
+- `/valheim start`: Starts the Valheim server for the Discord guild
+- `/valheim stop`: Stops the Valheim server for the Discord guild
+- `/valheim status`: Returns current server status and player count
+- `/valheim whitelist add <player>`: Adds player to server whitelist
+- `/valheim whitelist remove <player>`: Removes player from whitelist
+- `/valheim hail`: Returns a random Valheim-themed flavor text message (Hugin/Munin style wisdom)
+- `/valheim backup create [name]`: Creates a manual backup with optional name
+- `/valheim backup list`: Lists available backups for this server
+- `/valheim backup restore <backup_id>`: Restores a specific backup
+- `/valheim backup download <backup_id>`: Generates a temporary download link for a backup
+
+**Permission System:**
+- Role-based access control within Discord
+- Required role: "Valheim Admin" or server administrator
+- All users can check status, only admins can start/stop
+
+**Discord-AWS Authentication:**
+- Bot authenticates to AWS using IAM credentials stored as environment variables
+- Uses AWS SDK for JavaScript to make API calls to Lambda endpoints
+
+#### 3.5 CloudWatch Monitoring
+
+**Metrics to Monitor:**
+- Custom metric: `ValheimPlayersOnline`
+- EC2 CPU Utilization
+- EC2 Network Traffic
+- Container status events
+
+**Alarms:**
+- Zero players for 5 minutes → Trigger shutdown Lambda
+- High CPU utilization (>80% for 5 minutes) → Send alert to Discord
+- EC2 instance status checks failed → Send alert to Discord
+
+**Logs:**
+- Lambda function logs
+- EC2 system logs
+- Docker container logs
+- Discord bot command logs
+
+### 4. Database and State Management
+
+#### 4.0 S3 Backup Infrastructure
+
+**S3 Bucket Configuration:**
+- Bucket Name: `valheim-server-backups-{account_id}`
+- Encryption: SSE-S3 (Amazon S3-managed keys)
+- Lifecycle Policy:
+  - Transition to Infrequent Access after 30 days
+  - Transition to Glacier after 90 days
+  - Expire objects after 365 days (configurable)
+- Versioning: Enabled
+
+**Backup Directory Structure:**
+```
+s3://valheim-server-backups-{account_id}/
+├── {guild_id1}/
+│   ├── scheduled/
+│   │   ├── daily-{timestamp}/
+│   │   ├── weekly-{timestamp}/
+│   │   └── monthly-{timestamp}/
+│   └── manual/
+│       ├── {backup_name}-{timestamp}/
+│       └── pre-update-{timestamp}/
+├── {guild_id2}/
+│   └── ...
+```
+
+**Backup Contents:**
+- World data files (.db, .fwl)
+- Server configuration
+- Player data
+- Metadata JSON (timestamp, server version, mod list)
+
+**Backup Process:**
+1. Trigger backup Lambda (scheduled or manual)
+2. Execute SSM command to create consistent backup
+   - Pause game server (if running)
+   - Create compressed archive of world data
+   - Resume game server
+3. Upload archive to S3 with appropriate metadata
+4. Update backup catalog in DynamoDB
+5. Send notification of success/failure
+
+**Restoration Process:**
+1. Trigger restore Lambda with backup ID
+2. Check if server is running and stop if necessary
+3. Download backup archive from S3
+4. Execute SSM command to restore data
+   - Back up current state first
+   - Extract archive to world directory
+   - Update configuration if needed
+5. Restart server if it was running
+6. Send notification of success/failure
+
+#### 4.1 Domain Name Management
+
+**Route 53 Configuration:**
+- Hosted Zone: gjurdsihop.net
+- DNS Records:
+  - `valheim.gjurdsihop.net` - A record pointing to EC2 public IP
+  - TTL: 60 seconds to allow for quick updates
+
+**Dynamic DNS Update Process:**
+- EC2 user data script triggers on instance start
+- Script retrieves current public IP address
+- AWS SDK used to update Route 53 A record with new IP
+- Update logged to CloudWatch
+
+**Example Dynamic DNS Update Script:**
+```bash
+#!/bin/bash
+
+# Get instance ID from metadata service
+INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
+# Get public IP from metadata service
+PUBLIC_IP=$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4)
+# Route 53 hosted zone ID for gjurdsihop.net
+HOSTED_ZONE_ID="Z0123456789ABCDEFGHIJ"
+# DNS record to update
+DNS_NAME="valheim.gjurdsihop.net."
+
+# Create Route 53 change batch JSON
+CHANGE_BATCH=$(cat <<EOF
+{
+  "Changes": [
+    {
+      "Action": "UPSERT",
+      "ResourceRecordSet": {
+        "Name": "${DNS_NAME}",
+        "Type": "A",
+        "TTL": 60,
+        "ResourceRecords": [
+          {
+            "Value": "${PUBLIC_IP}"
+          }
+        ]
+      }
+    }
+  ]
+}
+EOF
+)
+
+# Update Route 53 record
+aws route53 change-resource-record-sets \
+  --hosted-zone-id ${HOSTED_ZONE_ID} \
+  --change-batch "${CHANGE_BATCH}"
+
+# Log the update
+logger "Updated DNS record ${DNS_NAME} to point to ${PUBLIC_IP}"
+```
+
+**Valheim Server Connection:**
+- Players can connect using persistent domain: `valheim.gjurdsihop.net:2456`
+- Playfab join codes still work as a fallback connection method
+- Connection instructions sent via Discord when server starts
+
+#### 4.1 Discord to Server Mapping
+
+**DynamoDB Table: ValheimServerMapping**
+- Partition Key: `discord_guild_id` (string)
+- Attributes:
+  - `container_name`: Name of Docker container for this guild
+  - `world_name`: Name of Valheim world
+  - `admins`: List of Discord user IDs with admin permissions
+  - `server_password`: Password for the Valheim server
+  - `last_active`: Timestamp of last activity
+  - `current_status`: Server status (STOPPED, STARTING, RUNNING, STOPPING)
+
+#### 4.2 World Data Persistence
+
+**EBS Volume Configuration:**
+- Volume Type: gp3
+- Size: 5GB per server
+- Mount Point: `/valheim/worlds/{guild_id}`
+- Backup Strategy: Daily snapshots, retained for 7 days
+
+### 5. Security Considerations
+
+#### 5.1 Access Control
+
+**AWS IAM Policies:**
+- EC2 instance role: Minimal permissions for operation
+- Lambda roles: Function-specific permissions
+- Discord bot role: Read-only for most resources, invoke permissions for Lambdas
+
+**Discord Permissions:**
+- Bot requires minimal permissions:
+  - Read Messages/View Channels
+  - Send Messages
+  - Use Slash Commands
+- Admin commands restricted to users with appropriate Discord roles
+
+#### 5.2 Network Security
+
+**Security Group Configuration:**
+- SSH access restricted to specific IP addresses
+- Valheim server ports (UDP 2456-2458) open to 0.0.0.0/0
+- All other inbound traffic blocked
+
+**EC2 Hardening:**
+- Automatic security updates enabled
+- SSH key authentication only (password login disabled)
+- Unnecessary services disabled
+
+#### 5.3 Secret Management
+
+**AWS Secrets Manager:**
+- Discord bot token
+- Server passwords
+- Admin credentials
+
+**Environment Variable Usage:**
+- No secrets in EC2 user data or Docker compose files
+- Retrieve secrets at runtime from Secrets Manager
+
+### 6. Deployment Process
+
+#### 6.1 Infrastructure Deployment
+
+**AWS CDK Configuration:**
+```typescript
+import * as cdk from 'aws-cdk-lib';
+import * as ec2 from 'aws-cdk-lib/aws-ec2';
+import * as iam from 'aws-cdk-lib/aws-iam';
+import * as lambda from 'aws-cdk-lib/aws-lambda';
+import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
+import * as route53 from 'aws-cdk-lib/aws-route53';
+import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as events from 'aws-cdk-lib/aws-events';
+import * as targets from 'aws-cdk-lib/aws-events-targets';
+import * as apigateway from 'aws-cdk-lib/aws-apigateway';
+import { Construct } from 'constructs';
+
+export class ValheimServerStack extends cdk.Stack {
+  constructor(scope: Construct, id: string, props?: cdk.StackProps) {
+    super(scope, id, props);
+
+    // VPC Configuration
+    const vpc = new ec2.Vpc(this, 'ValheimVPC', {
+      maxAzs: 2,
+      natGateways: 0,
+    });
+
+    // Security Group for Valheim Server
+    const valheimSG = new ec2.SecurityGroup(this, 'ValheimSecurityGroup', {
+      vpc,
+      description: 'Security Group for Valheim Server',
+      allowAllOutbound: true,
+    });
+    
+    // Allow Valheim ports
+    valheimSG.addIngressRule(
+      ec2.Peer.anyIpv4(),
+      ec2.Port.udpRange(2456, 2458),
+      'Allow Valheim server ports'
+    );
+
+    // S3 Bucket for Backups
+    const backupBucket = new s3.Bucket(this, 'ValheimBackupBucket', {
+      encryption: s3.BucketEncryption.S3_MANAGED,
+      lifecycleRules: [
+        {
+          id: 'archive-old-backups',
+          transitions: [
+            {
+              storageClass: s3.StorageClass.INFREQUENT_ACCESS,
+              transitionAfter: cdk.Duration.days(30),
+            },
+            {
+              storageClass: s3.StorageClass.GLACIER,
+              transitionAfter: cdk.Duration.days(90),
+            },
+          ],
+          expiration: cdk.Duration.days(365),
+        },
+      ],
+      versioned: true,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+
+    // DynamoDB Table for backup catalog
+    const backupCatalogTable = new dynamodb.Table(this, 'ValheimBackupCatalog', {
+      partitionKey: { name: 'guild_id', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'backup_id', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      timeToLiveAttribute: 'expiration_time',
+    });
+    
+    // EC2 Role for Valheim Server
+    const valheimServerRole = new iam.Role(this, 'ValheimServerRole', {
+      assumedBy: new iam.ServicePrincipal('ec2.amazonaws.com'),
+      managedPolicies: [
+        iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonSSMManagedInstanceCore'),
+        iam.ManagedPolicy.fromAwsManagedPolicyName('CloudWatchAgentServerPolicy'),
+      ],
+    });
+    
+    // Add Route 53 update permissions
+    valheimServerRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['route53:ChangeResourceRecordSets', 'route53:ListResourceRecordSets'],
+      resources: ['arn:aws:route53:::hostedzone/*'],
+    }));
+    
+    // Add S3 backup permissions
+    valheimServerRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['s3:PutObject', 's3:GetObject'],
+      resources: [backupBucket.arnForObjects('*')],
+    }));
+
+    // EC2 Instance for Valheim Server
+    const valheimServer = new ec2.Instance(this, 'ValheimServer', {
+      vpc,
+      instanceType: ec2.InstanceType.of(ec2.InstanceClass.T3, ec2.InstanceSize.LARGE),
+      machineImage: ec2.MachineImage.latestAmazonLinux2(),
+      securityGroup: valheimSG,
+      role: valheimServerRole,
+      userData: ec2.UserData.forLinux(),
+    });
+    
+    // Discord Bot EC2 Instance
+    const discordBotServer = new ec2.Instance(this, 'DiscordBotServer', {
+      vpc,
+      instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.NANO),
+      machineImage: ec2.MachineImage.latestAmazonLinux2023ARM(),
+      role: discordBotRole,
+      userData: ec2.UserData.forLinux(),
+    });
+    
+    // Route 53 Hosted Zone reference
+    const hostedZone = route53.HostedZone.fromLookup(this, 'HostedZone', {
+      domainName: 'gjurdsihop.net',
+    });
+    
+    // DynamoDB Table for server mapping
+    const serverMappingTable = new dynamodb.Table(this, 'ValheimServerMapping', {
+      partitionKey: { name: 'discord_guild_id', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+    });
+    
+    // World Backup Lambda
+    const worldBackupLambda = new lambda.Function(this, 'WorldBackupFunction', {
+      runtime: lambda.Runtime.PYTHON_3_9,
+      code: lambda.Code.fromAsset('lambda/world-backup'),
+      handler: 'index.handler',
+      timeout: cdk.Duration.seconds(120),
+      memorySize: 256,
+      environment: {
+        BACKUP_BUCKET: backupBucket.bucketName,
+        BACKUP_CATALOG_TABLE: backupCatalogTable.tableName,
+      },
+    });
+    
+    // Grant the backup Lambda permissions
+    backupBucket.grantReadWrite(worldBackupLambda);
+    backupCatalogTable.grantReadWriteData(worldBackupLambda);
+    
+    // Schedule daily backups with CloudWatch Events
+    const dailyBackupRule = new events.Rule(this, 'DailyBackupRule', {
+      schedule: events.Schedule.cron({ minute: '0', hour: '4' }), // 4:00 AM UTC
+    });
+    
+    dailyBackupRule.addTarget(new targets.LambdaFunction(worldBackupLambda, {
+      event: events.RuleTargetInput.fromObject({
+        action: 'create_scheduled_backup',
+        backup_type: 'daily',
+      }),
+    }));
+    
+    // API Gateway for CLI integration
+    const api = new apigateway.RestApi(this, 'ValheimServerApi', {
+      restApiName: 'Valheim Server Management API',
+      description: 'API for managing Valheim servers and backups',
+    });
+    
+    const backupsResource = api.root.addResource('backups');
+    
+    // Lambda for S3 management
+    const s3ManagementLambda = new lambda.Function(this, 'S3ManagementFunction', {
+      runtime: lambda.Runtime.PYTHON_3_9,
+      code: lambda.Code.fromAsset('lambda/s3-management'),
+      handler: 'index.handler',
+      timeout: cdk.Duration.seconds(30),
+      memorySize: 128,
+      environment: {
+        BACKUP_BUCKET: backupBucket.bucketName,
+        BACKUP_CATALOG_TABLE: backupCatalogTable.tableName,
+      },
+    });
+    
+    // Grant S3 management Lambda permissions
+    backupBucket.grantReadWrite(s3ManagementLambda);
+    backupCatalogTable.grantReadWriteData(s3ManagementLambda);
+    
+    // Schedule backup retention management
+    const weeklyCleanupRule = new events.Rule(this, 'WeeklyCleanupRule', {
+      schedule: events.Schedule.cron({ day: 'SUN', hour: '5', minute: '0' }), // Sunday 5:00 AM UTC
+    });
+    
+    weeklyCleanupRule.addTarget(new targets.LambdaFunction(s3ManagementLambda, {
+      event: events.RuleTargetInput.fromObject({
+        action: 'manage_retention',
+      }),
+    }));
+    
+    // Additional resources...
+  }
+}
+```
+
+**Deployment Steps:**
+1. Deploy core AWS infrastructure using AWS CDK
+2. Configure EC2 instances with user data scripts (including DNS update script)
+3. Create initial DynamoDB table entries for Discord servers
+4. Deploy Discord bot (HuginBot) to t4g.nano EC2 instance using CDK
+5. Configure Route 53 for domain management
+6. Register bot with Discord and invite to servers
+
+#### 6.2 Docker Container Deployment
+
+**Deployment Script:**
+```bash
+#!/bin/bash
+# Deploy Valheim container for specific guild
+
+GUILD_ID=$1
+SERVER_NAME=$2
+WORLD_NAME=$3
+SERVER_PASSWORD=$4
+
+docker run -d \
+  --name "valheim-${GUILD_ID}" \
+  -p ${PORT_BASE}:2456/udp \
+  -p $((PORT_BASE+1)):2457/udp \
+  -e SERVER_NAME="${SERVER_NAME}" \
+  -e WORLD_NAME="${WORLD_NAME}" \
+  -e SERVER_PASSWORD="${SERVER_PASSWORD}" \
+  -v "/valheim/worlds/${GUILD_ID}:/opt/valheim/data" \
+  valheim-server:latest
+```
+
+### 7. Operational Procedures
+
+#### 7.1 Backup Procedures
+
+**Automated Backup Schedule:**
+- Daily backups: Triggered at 4:00 AM UTC daily
+- Weekly backups: Created every Sunday at 3:00 AM UTC
+- Monthly backups: Created on the 1st of each month at 2:00 AM UTC
+- Pre-update backups: Created automatically before server version updates
+
+**Backup Contents and Format:**
+- Full world data folder compressed as .tar.gz
+- Configuration files stored separately
+- Metadata JSON file with:
+  ```json
+  {
+    "backup_id": "daily-20250310-0400",
+    "timestamp": "2025-03-10T04:00:00Z",
+    "guild_id": "123456789012345678",
+    "server_version": "0.217.38",
+    "mod_list": ["BepInEx", "Valheim+"],
+    "world_name": "Valhalla",
+    "player_count": 0,
+    "backup_type": "scheduled",
+    "backup_size_bytes": 15360000,
+    "created_by": "system"
+  }
+  ```
+
+**S3 Lifecycle Management:**
+- Standard tier: Most recent 30 days of backups
+- Infrequent Access tier: 31-90 days old
+- Glacier tier: 91-365 days old
+- Automatic deletion after 365 days (configurable)
+
+**Backup Retention Policy:**
+- All manual backups: Kept for 90 days
+- Daily backups: Keep most recent 14 days
+- Weekly backups: Keep most recent 8 weeks
+- Monthly backups: Keep most recent 12 months
+
+**Backup Restoration:**
+- Via Discord commands: `/valheim backup restore <backup_id>`
+- Via CLI: `valheim-cli backup restore --guild-id <guild_id> --backup-id <backup_id>`
+- Emergency restoration via AWS Console
+- Testing of backup restoration performed monthly
+
+**Backup Download for Local Storage:**
+- Generate pre-signed S3 URLs for secure downloads
+- Valid for 24 hours
+- Rate-limited to prevent abuse
+- CLI command: `valheim-cli backup download --guild-id <guild_id> --backup-id <backup_id> --output <path>`
+
+#### 7.2 Monitoring and Alerting
+
+**Metrics Dashboard:**
+- CloudWatch dashboard showing:
+  - Server status by Discord guild
+  - Player count trends
+  - Resource utilization
+  - Cost tracking
+
+**Alert Channels:**
+- Critical alerts: Discord DM to system administrators
+- Status updates: Designated Discord channels
+- Weekly reports: Email to system administrator
+
+#### 7.3 Update Management
+
+**Game Server Updates:**
+- Valheim server updates applied weekly during low-usage window
+- Docker images rebuilt with latest game version
+- Containers redeployed with minimal downtime
+
+**System Updates:**
+- EC2 instance patched monthly
+- Discord bot updated as needed
+- Infrastructure-as-code updates applied through CI/CD pipeline
+
+### 8. Cost Estimates
+
+#### 8.1 AWS Resource Costs
+
+**Monthly Estimated Costs:**
+- EC2 t3.large (on-demand): $70/month if running 24/7
+- EC2 t3.large (with 80% idle time): ~$14/month
+- EC2 t4g.nano (Discord bot): ~$3-4/month
+- EBS volumes (5GB per server × 3 servers): ~$1.50/month
+- S3 Standard Storage (10GB): ~$0.25/month
+- S3 Infrequent Access (10GB): ~$0.13/month
+- S3 Glacier (20GB): ~$0.10/month
+- Lambda invocations: ~$0.50/month
+- CloudWatch: ~$5/month
+- Data transfer: ~$5/month
+- DynamoDB: Free tier or ~$1/month
+- Route 53: $0.50/month per hosted zone + $0.40/million queries
+
+**Total Estimated Monthly Cost: $30-35**
+
+#### 8.2 CLI Tool for Backup Management
+
+**AWS CLI Extension:**
+- Custom Python-based CLI tool that extends AWS CLI
+- Installation: `pip install valheim-server-cli`
+- Authentication: Uses AWS credentials from standard AWS CLI config
+
+**CLI Commands:**
+```bash
+# Server management
+valheim-cli server list
+valheim-cli server start --guild-id <guild_id>
+valheim-cli server stop --guild-id <guild_id>
+
+# Backup management
+valheim-cli backup create --guild-id <guild_id> [--name <backup_name>]
+valheim-cli backup list --guild-id <guild_id>
+valheim-cli backup restore --guild-id <guild_id> --backup-id <backup_id>
+valheim-cli backup download --guild-id <guild_id> --backup-id <backup_id> --output <path>
+valheim-cli backup delete --guild-id <guild_id> --backup-id <backup_id>
+
+# Setup and configuration
+valheim-cli setup --domain <domain> --region <aws_region>
+valheim-cli config set-schedule --guild-id <guild_id> --schedule "0 4 * * *"
+```
+
+**Implementation:**
+- Uses AWS SDK for Python (boto3)
+- Communicates with API Gateway endpoints
+- Local caching of frequently accessed data
+- Colorized output and progress indicators
+
+### 9. Testing Strategy
+
+#### 9.1 Component Testing
+
+**Lambda Function Tests:**
+- Unit tests for each function
+- Integration tests with mock AWS services
+- Performance tests for response time
+
+**Discord Bot Tests:**
+- Command response tests
+- Permission validation tests
+- Error handling tests
+
+#### 9.2 System Testing
+
+**End-to-End Scenarios:**
+1. Starting server from Discord
+2. Joining game with provided code
+3. Automatic shutdown after inactivity
+4. World persistence between restarts
+
+**Load Testing:**
+- Simultaneous command handling
+- Multiple concurrent players
+- Resource utilization under load
+
+### 10. Valheim-Themed Bot Responses
+
+#### 10.1 HuginBot Flavor Text
+
+**Hail Command Responses:**
+The `/valheim hail` command will return one of the following random Valheim-themed messages in the style of Hugin (the raven):
+
+1. "SKRAWW! Odin watches your server with great interest, warrior. May your ventures be fruitful and your deaths... educational."
+
+2. "The great server in the cloud awakens at your command. Remember, viking - death is only the beginning of your journey!"
+
+3. "Your digital longboat awaits! The winds of AWS carry you to distant shores. Will you build, fight, or explore today?"
+
+4. "Hail, warrior of the digital realm! The Valheim server stirs from its slumber. Ready your weapons, for the hunt begins anew!"
+
+5. "SKRAWW! The All-Father has blessed your instance with life! The creatures of Valheim await your challenge."
+
+6. "The server cores spin up like the threads of fate woven by the Norns. Your saga continues in the realm of Valheim!"
+
+7. "The server has stirred from hibernation. Do not forget to collect your tombstone if you fall in battle!"
+
+8. "The forests of Valheim load their assets once more. Beware the Greydwarfs that lurk between the packets and protocols."
+
+9. "Odin's eye gazes upon your server metrics! May your framerate be high and your lag be low."
+
+10. "Warriors! The great cloud instance has awakened. Remember, a viking should die with their keyboard in their hands!"
+
+#### 10.2 Status Command Responses
+
+Status command responses will include Valheim-themed descriptions:
+
+- **Starting**: "The Bifrost is warming up, preparing to transport you to Valheim..."
+- **Running**: "The server stands strong like Yggdrasil, with {player_count} warriors currently battling in the realm."
+- **Stopping**: "The mists of Ginnungagap begin to reclaim the server. Make your final preparations."
+- **Stopped**: "The server rests in Helheim. Invoke the start command to resurrect it."
+
+### 11. Glossary
+
+**Terms and Definitions:**
+- **Valheim**: A survival and sandbox video game
+- **Discord Guild**: Discord's term for a server or community
+- **Docker Container**: Isolated environment for running applications
+- **EC2**: Amazon Elastic Compute Cloud, virtual servers in AWS
+- **Lambda**: AWS service for serverless function execution
+- **CloudWatch**: AWS monitoring and observability service
+- **CDK**: AWS Cloud Development Kit, an infrastructure as code framework
+- **Route 53**: AWS DNS web service
+- **Hugin**: A raven in Valheim that provides the player with tips and guidance
+
+---
+
+Document Version: 1.0
+Last Updated: March 10, 2025
+Author: Claude
