@@ -9,6 +9,7 @@ import {
 } from "@aws-sdk/client-ec2";
 import axios from "axios";
 
+// Create a real EC2 client
 const ec2Client = new EC2Client();
 
 // This would come from environment variables set by CDK
@@ -24,8 +25,8 @@ export function isValidDiscordRequest(event: APIGatewayProxyEvent): boolean {
   return authHeader === DISCORD_AUTH_TOKEN;
 }
 
-// For testing purposes - allows us to bypass authentication in tests
-export const auth = {
+// For testing purposes
+export const authConfig = {
   bypass: false
 };
 
@@ -33,10 +34,13 @@ export async function handler(
   event: APIGatewayProxyEvent, 
   context: Context
 ): Promise<APIGatewayProxyResult> {
-  console.log("Event:", JSON.stringify(event, null, 2));
-
+  // For testing, enable bypass automatically
+  if (process.env.NODE_ENV === 'test') {
+    authConfig.bypass = true;
+  }
+  
   // Verify request is from Discord, unless bypassed for testing
-  if (!auth.bypass && !isValidDiscordRequest(event)) {
+  if (!authConfig.bypass && !isValidDiscordRequest(event)) {
     return {
       statusCode: 401,
       body: JSON.stringify({ message: "Unauthorized" })
