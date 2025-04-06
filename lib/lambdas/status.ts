@@ -18,11 +18,16 @@ const VALHEIM_INSTANCE_ID = process.env.VALHEIM_INSTANCE_ID || '';
 const DISCORD_AUTH_TOKEN = process.env.DISCORD_AUTH_TOKEN || '';
 
 // Verify the request is from Discord
-function isValidDiscordRequest(event: APIGatewayProxyEvent): boolean {
+export function isValidDiscordRequest(event: APIGatewayProxyEvent): boolean {
   // In production, you would verify the signature from Discord  
   const authHeader = event.headers['x-discord-auth'] || '';
   return authHeader === DISCORD_AUTH_TOKEN;
 }
+
+// For testing purposes - allows us to bypass authentication in tests
+export const auth = {
+  bypass: false
+};
 
 export async function handler(
   event: APIGatewayProxyEvent, 
@@ -30,8 +35,8 @@ export async function handler(
 ): Promise<APIGatewayProxyResult> {
   console.log("Event:", JSON.stringify(event, null, 2));
 
-  // Verify request is from Discord
-  if (!isValidDiscordRequest(event)) {
+  // Verify request is from Discord, unless bypassed for testing
+  if (!auth.bypass && !isValidDiscordRequest(event)) {
     return {
       statusCode: 401,
       body: JSON.stringify({ message: "Unauthorized" })

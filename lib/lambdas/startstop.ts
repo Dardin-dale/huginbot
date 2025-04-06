@@ -57,7 +57,7 @@ function parseWorldConfigs(configString: string): WorldConfig[] {
 }
 
 // Verify the request is from Discord
-function isValidDiscordRequest(event: APIGatewayProxyEvent): boolean {
+export function isValidDiscordRequest(event: APIGatewayProxyEvent): boolean {
   // In production, you would verify the signature from Discord
   // https://discord.com/developers/docs/interactions/receiving-and-responding#security-and-authorization
   
@@ -65,14 +65,19 @@ function isValidDiscordRequest(event: APIGatewayProxyEvent): boolean {
   return authHeader === DISCORD_AUTH_TOKEN;
 }
 
+// For testing purposes - allows us to bypass authentication in tests
+export const auth = {
+  bypass: false
+};
+
 export async function handler(
   event: APIGatewayProxyEvent, 
   context: Context
 ): Promise<APIGatewayProxyResult> {
   console.log("Event:", JSON.stringify(event, null, 2));
 
-  // Verify request is from Discord
-  if (!isValidDiscordRequest(event)) {
+  // Verify request is from Discord, unless bypassed for testing
+  if (!auth.bypass && !isValidDiscordRequest(event)) {
     return {
       statusCode: 401,
       body: JSON.stringify({ message: "Unauthorized" })
