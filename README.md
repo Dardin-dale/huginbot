@@ -14,12 +14,30 @@ HuginBot is an AWS CDK project that provisions and manages a Valheim game server
 
 ## Setup Requirements
 
-1. AWS Account with appropriate permissions
+1. AWS Account with appropriate permissions:
+   - Administrative access for initial setup
+   - IAM permissions for creating roles and policies
+   - EC2, S3, Lambda, API Gateway, CloudWatch, SSM, and EventBridge permissions
+   - AWS CLI installed and configured with valid credentials
+
 2. Node.js 16+ and npm installed
+   - TypeScript knowledge for customization
+   - AWS CDK familiarity recommended
+
 3. Discord bot application configured with:
    - Bot token
    - Application ID
    - Public key
+   - A Discord server where you have admin permissions
+
+4. Network requirements:
+   - AWS security groups are automatically configured by the stack
+   - No special network configuration needed on your local computer
+   - For local testing only: UDP/TCP ports 2456-2458 if testing with Docker
+
+5. Valheim details:
+   - Steam IDs for admin configuration (find yours at [SteamID Finder](https://steamidfinder.com/))
+   - Basic understanding of Valheim gameplay
 
 ## Installation
 
@@ -38,7 +56,30 @@ HuginBot is an AWS CDK project that provisions and manages a Valheim game server
    ```
    cp .env.template .env
    ```
-   Edit `.env` with your AWS and Discord configuration.
+   Edit `.env` with your AWS and Discord configuration. The template includes:
+   ```
+   # AWS Configuration
+   AWS_REGION=us-west-2
+   AWS_PROFILE=default
+   
+   # Valheim Server Configuration
+   VALHEIM_WORLD_NAME=YourWorldName
+   VALHEIM_SERVER_PASSWORD=your_secure_password
+   VALHEIM_ADMIN_IDS=76561198012345678 76561198023456789
+   
+   # Discord Integration
+   DISCORD_APP_ID=your_discord_client_id_here
+   DISCORD_BOT_PUBLIC_KEY=your_discord_bot_public_key_here
+   DISCORD_BOT_SECRET_TOKEN=your_discord_bot_token_here
+   DISCORD_AUTH_TOKEN=your_custom_auth_token_here
+   
+   # Multi-world Configuration (JSON format)
+   WORLD_CONFIGURATIONS=[{"name":"World1","discordServerId":"123456789012345678","worldName":"World1Save","serverPassword":"password1"},{"name":"World2","discordServerId":"234567890123456789","worldName":"World2Save","serverPassword":"password2"}]
+   
+   # Backup Configuration
+   BACKUP_FREQUENCY_HOURS=24
+   BACKUPS_TO_KEEP=7
+   ```
 
 4. Build the project:
    ```
@@ -50,7 +91,10 @@ HuginBot is an AWS CDK project that provisions and manages a Valheim game server
 1. Go to [Discord Developer Portal](https://discord.com/developers/applications)
 2. Create a new application or use an existing one
 3. Under "Bot" section, create a bot and copy the token
-4. Add the following to your `.env` file:
+4. Copy your Application ID from the "General Information" tab
+5. Copy your Public Key from the "General Information" tab
+6. Create a custom authentication token for your bot (can be any secure random string)
+7. Add the following to your `.env` file:
    ```
    DISCORD_APP_ID=your_discord_client_id_here
    DISCORD_BOT_PUBLIC_KEY=your_discord_bot_public_key_here
@@ -58,10 +102,24 @@ HuginBot is an AWS CDK project that provisions and manages a Valheim game server
    DISCORD_AUTH_TOKEN=your_custom_auth_token_here
    ```
 
-5. Add the bot to your Discord server with the following permissions:
+8. Add the bot to your Discord server with the following permissions:
    - Send Messages
    - Read Message History
    - Use Slash Commands
+
+9. After deploying your stack with `npm run deploy:all`, you'll receive the API Gateway endpoint in the terminal output. Copy this URL.
+
+10. Go back to the Discord Developer Portal and navigate to your application:
+    - Go to "Interactions Endpoint URL" and paste your API Gateway URL followed by `/valheim/control`
+    - Example: `https://abcdefghij.execute-api.us-west-2.amazonaws.com/prod/valheim/control`
+    - Click "Save Changes" - Discord will validate your endpoint
+    
+11. Register slash commands for your bot:
+    - Go to the "Bot" section in the Discord Developer Portal
+    - Enable "Message Content Intent" if it's not already enabled
+    - Save changes
+    - Use a tool like [Discord Slash Commands Deployer](https://discord.com/developers/docs/interactions/application-commands) to register your commands or create a simple script
+    - Basic commands to register: `/valheim start`, `/valheim stop`, `/valheim status`, `/valheim worlds`
 
 ## Deployment
 
@@ -177,6 +235,21 @@ HuginBot uses a serverless architecture with:
 - **S3**: World backups and storage
 - **SSM Parameter Store**: Configuration storage
 - **CloudWatch**: Monitoring and logs
+- **EventBridge**: Event-driven communication between components
+
+### Cost Estimation
+
+The project is designed to be cost-effective:
+
+- **EC2 Instance**: Only runs when players are active (~$0.05-0.10/hour for t3.medium when running)
+- **Serverless Components**: Minimal costs since they only run on-demand
+  - Lambda: Free tier covers most usage
+  - API Gateway: ~$1/month for typical usage
+  - S3 Storage: ~$0.023 per GB/month for backups
+  - CloudWatch: Basic monitoring included
+- **Total Monthly Cost**: Around $5-20/month depending on usage
+
+The EC2 instance automatically shuts down after 10 minutes of inactivity to minimize costs.
 
 ## Backup System
 
@@ -257,6 +330,40 @@ To test locally without incurring AWS costs:
 - [ ] Add player statistics and tracking
 - [ ] Enhance Discord bot with more commands and features
 - [ ] Implement automatic server scaling based on player count
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Discord Slash Commands Not Working**
+   - Verify your API Gateway endpoint is correctly configured in Discord Developer Portal
+   - Check CloudWatch Logs for Lambda function errors
+   - Ensure the bot has appropriate permissions in your Discord server
+
+2. **Server Won't Start**
+   - Check EC2 instance limits in your AWS account
+   - Verify IAM permissions for Lambda to start EC2 instances
+   - Check CloudWatch Logs for error messages
+
+3. **World Files Not Found**
+   - Ensure world files are correctly placed in the `worlds/` directory
+   - Verify file naming follows the pattern `WorldName.db` and `WorldName.fwl`
+   - Check S3 bucket permissions
+
+4. **Auto-Shutdown Too Quick**
+   - The server auto-shuts down after 10 minutes of inactivity by default
+   - Modify the `idleThresholdMinutes` value in `valheim-stack.ts` to adjust this
+
+5. **Discord Authentication Failures**
+   - Ensure your `DISCORD_AUTH_TOKEN` matches between your .env and what's deployed
+   - Check CloudWatch Logs for authentication errors
+
+### Getting Help
+
+If you encounter issues not covered here:
+- Check CloudWatch Logs for detailed error messages
+- Look at the EC2 instance's system logs for Valheim server errors
+- File an issue on the GitHub repository with details about your problem
 
 ## Contributing
 
