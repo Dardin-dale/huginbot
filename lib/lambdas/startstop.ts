@@ -4,71 +4,41 @@ import {
   Context 
 } from "aws-lambda";
 import { 
-  EC2Client, 
   StartInstancesCommand, 
-  StopInstancesCommand, 
-  DescribeInstancesCommand 
+  StopInstancesCommand 
 } from "@aws-sdk/client-ec2";
 import { 
-  SSMClient, 
   GetParameterCommand, 
-  PutParameterCommand 
+  PutParameterCommand,
+  DeleteParameterCommand,
+  SendCommandCommand
 } from "@aws-sdk/client-ssm";
 import { 
-  S3Client, 
-  CopyObjectCommand 
+  ListObjectsV2Command
 } from "@aws-sdk/client-s3";
 
-const ec2Client = new EC2Client();
-const ssmClient = new SSMClient();
-const s3Client = new S3Client();
-
-// This would come from environment variables set by CDK
-const VALHEIM_INSTANCE_ID = process.env.VALHEIM_INSTANCE_ID || '';
-const BACKUP_BUCKET_NAME = process.env.BACKUP_BUCKET_NAME || '';
-
-// This would be set in your Discord bot's configuration
-const DISCORD_AUTH_TOKEN = process.env.DISCORD_AUTH_TOKEN || '';
-
-// SSM Parameter to track the currently active world
-const ACTIVE_WORLD_PARAM = '/huginbot/active-world';
-
-// Parse world configurations from environment variable
-const WORLD_CONFIGS = process.env.WORLD_CONFIGURATIONS ? 
-  parseWorldConfigs(process.env.WORLD_CONFIGURATIONS) : [];
-
-interface WorldConfig {
-  name: string;
-  discordServerId: string;
-  worldName: string;
-  serverPassword: string;
-}
-
-function parseWorldConfigs(configString: string): WorldConfig[] {
-  try {
-    return configString.split(';').map(worldString => {
-      const [name, discordServerId, worldName, serverPassword] = worldString.split(',');
-      return { name, discordServerId, worldName, serverPassword };
-    });
-  } catch (error) {
-    console.error('Error parsing world configurations:', error);
-    return [];
-  }
-}
-
-// Verify the request is from Discord
-export function isValidDiscordRequest(event: APIGatewayProxyEvent): boolean {
-  // In production, you would verify the signature from Discord
-  // https://discord.com/developers/docs/interactions/receiving-and-responding#security-and-authorization
-  
-  const authHeader = event.headers['x-discord-auth'] || '';
-  return authHeader === DISCORD_AUTH_TOKEN;
-}
-
-// For testing purposes - allows us to bypass authentication in tests
-export const authConfig = {
-  bypass: false
-};
+// Import shared utilities
+import { 
+  ec2Client, 
+  ssmClient, 
+  s3Client,
+  VALHEIM_INSTANCE_ID, 
+  BACKUP_BUCKET_NAME,
+  SSM_PARAMS,
+  getInstanceStatus,
+  getStatusMessage
+} from "./utils/aws-clients";
+import { 
+  setupAuth,
+  getUnauthorizedResponse,
+  getMissingConfigResponse
+} from "./utils/auth";
+import { 
+  createSuccessResponse, 
+  createBadRequestResponse, 
+  createErrorResponse 
+} from "./utils/responses";
+import { WORLD_CONFIGS, WorldConfig } from "./utils/world-config";
 
 export async function handler(
   event: APIGatewayProxyEvent, 
@@ -76,17 +46,9 @@ export async function handler(
 ): Promise<APIGatewayProxyResult> {
   console.log("Event:", JSON.stringify(event, null, 2));
   
-  // For testing, enable bypass automatically 
-  if (process.env.NODE_ENV === 'test') {
-    authConfig.bypass = true;
-  }
-
-  // Verify request is from Discord, unless bypassed for testing
-  if (!authConfig.bypass && !isValidDiscordRequest(event)) {
-    return {
-      statusCode: 401,
-      body: JSON.stringify({ message: "Unauthorized" })
-    };
+  // Handle authentication
+  if (!setupAuth(event)) {
+    return getUnauthorizedResponse();
   }
 
   try {
@@ -95,11 +57,9 @@ export async function handler(
     const discordServerId = body.guild_id || '';
     const worldName = body.world_name || '';
     
+    // Check for required configuration
     if (!VALHEIM_INSTANCE_ID) {
-      return {
-        statusCode: 500,
-        body: JSON.stringify({ message: "Server configuration error: Missing instance ID" })
-      };
+      return getMissingConfigResponse("instance ID");
     }
     
     // Handle actions based on Discord server ID or specific world
@@ -118,21 +78,22 @@ export async function handler(
         return await getServerStatus();
       case 'list-worlds':
         return await listWorlds(discordServerId);
+      case 'backup':
+        const backupAction = body.backup_action || 'list';
+        return await handleBackup(backupAction);
+      case 'hail':
+        return await hailHugin();
+      case 'help':
+        return await showHelp();
       default:
-        return {
-          statusCode: 400,
-          body: JSON.stringify({ 
-            message: "Invalid action. Use 'start', 'stop', 'status', or 'list-worlds'",
-            available_worlds: WORLD_CONFIGS.map(w => w.name)
-          })
-        };
+        return createBadRequestResponse(
+          "Invalid action. Use 'help' to see all available commands.", 
+          { available_worlds: WORLD_CONFIGS.map(w => w.name) }
+        );
     }
   } catch (error) {
     console.error("Error:", error);
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ message: "Internal server error" })
-    };
+    return createErrorResponse();
   }
 }
 
@@ -143,22 +104,16 @@ async function listWorlds(discordServerId?: string): Promise<APIGatewayProxyResu
       ? WORLD_CONFIGS.filter(w => w.discordServerId === discordServerId)
       : WORLD_CONFIGS;
     
-    return {
-      statusCode: 200,
-      body: JSON.stringify({
-        message: "Available worlds",
-        worlds: worlds.map(w => ({ 
-          name: w.name, 
-          worldName: w.worldName 
-        }))
-      })
-    };
+    return createSuccessResponse({
+      message: "Available worlds",
+      worlds: worlds.map(w => ({ 
+        name: w.name, 
+        worldName: w.worldName 
+      }))
+    });
   } catch (error) {
     console.error("Error listing worlds:", error);
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ message: "Failed to list worlds" })
-    };
+    return createErrorResponse("Failed to list worlds");
   }
 }
 
@@ -171,18 +126,15 @@ async function startServerWithWorld(worldName: string): Promise<APIGatewayProxyR
     );
     
     if (!worldConfig) {
-      return {
-        statusCode: 400,
-        body: JSON.stringify({ 
-          message: `World "${worldName}" not found`,
-          available_worlds: WORLD_CONFIGS.map(w => w.name)
-        })
-      };
+      return createBadRequestResponse(
+        `World "${worldName}" not found`,
+        { available_worlds: WORLD_CONFIGS.map(w => w.name) }
+      );
     }
     
     // Set active world in SSM Parameter Store
     await ssmClient.send(new PutParameterCommand({
-      Name: ACTIVE_WORLD_PARAM,
+      Name: SSM_PARAMS.ACTIVE_WORLD,
       Value: JSON.stringify(worldConfig),
       Type: 'String',
       Overwrite: true
@@ -192,10 +144,7 @@ async function startServerWithWorld(worldName: string): Promise<APIGatewayProxyR
     return await startServer();
   } catch (error) {
     console.error("Error starting server with world:", error);
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ message: "Failed to start server with specified world" })
-    };
+    return createErrorResponse("Failed to start server with specified world");
   }
 }
 
@@ -206,13 +155,10 @@ async function startServerForDiscord(discordServerId: string): Promise<APIGatewa
     const discordWorlds = WORLD_CONFIGS.filter(w => w.discordServerId === discordServerId);
     
     if (discordWorlds.length === 0) {
-      return {
-        statusCode: 400,
-        body: JSON.stringify({ 
-          message: "No worlds configured for this Discord server",
-          available_worlds: WORLD_CONFIGS.map(w => w.name)
-        })
-      };
+      return createBadRequestResponse(
+        "No worlds configured for this Discord server",
+        { available_worlds: WORLD_CONFIGS.map(w => w.name) }
+      );
     }
     
     // If multiple worlds, use the first one (can be enhanced with selection UI)
@@ -220,7 +166,7 @@ async function startServerForDiscord(discordServerId: string): Promise<APIGatewa
     
     // Set active world in SSM Parameter Store
     await ssmClient.send(new PutParameterCommand({
-      Name: ACTIVE_WORLD_PARAM,
+      Name: SSM_PARAMS.ACTIVE_WORLD,
       Value: JSON.stringify(worldConfig),
       Type: 'String',
       Overwrite: true
@@ -230,10 +176,7 @@ async function startServerForDiscord(discordServerId: string): Promise<APIGatewa
     return await startServer();
   } catch (error) {
     console.error("Error starting server for Discord:", error);
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ message: "Failed to start server for this Discord server" })
-    };
+    return createErrorResponse("Failed to start server for this Discord server");
   }
 }
 
@@ -243,30 +186,38 @@ async function startServer(): Promise<APIGatewayProxyResult> {
     const status = await getInstanceStatus();
     
     if (status === 'running') {
-      return {
-        statusCode: 200,
-        body: JSON.stringify({ 
-          message: "Server is already running",
-          status: status
-        })
-      };
+      return createSuccessResponse({
+        message: "Server is already running",
+        status: status
+      });
     }
     
     if (status === 'pending') {
-      return {
-        statusCode: 200,
-        body: JSON.stringify({ 
-          message: "Server is already starting",
-          status: status
-        })
-      };
+      return createSuccessResponse({
+        message: "Server is already starting",
+        status: status
+      });
+    }
+    
+    // Reset any existing PlayFab join codes
+    try {
+      await ssmClient.send(new DeleteParameterCommand({
+        Name: SSM_PARAMS.PLAYFAB_JOIN_CODE
+      }));
+      
+      await ssmClient.send(new DeleteParameterCommand({
+        Name: SSM_PARAMS.PLAYFAB_JOIN_CODE_TIMESTAMP
+      }));
+    } catch (err) {
+      // Parameters might not exist yet, which is fine
+      console.log('No PlayFab parameters found to delete');
     }
     
     // Get the active world configuration
     let worldConfig;
     try {
       const paramResult = await ssmClient.send(new GetParameterCommand({
-        Name: ACTIVE_WORLD_PARAM
+        Name: SSM_PARAMS.ACTIVE_WORLD
       }));
       
       if (paramResult.Parameter?.Value) {
@@ -288,23 +239,17 @@ async function startServer(): Promise<APIGatewayProxyResult> {
       ? `World: ${worldConfig.name} (${worldConfig.worldName})`
       : 'Using default world configuration';
     
-    return {
-      statusCode: 200,
-      body: JSON.stringify({ 
-        message: `Server is starting with ${worldInfo}. It may take several minutes before it's ready.`,
-        status: 'pending',
-        world: worldConfig ? {
-          name: worldConfig.name,
-          worldName: worldConfig.worldName
-        } : null
-      })
-    };
+    return createSuccessResponse({
+      message: `Server is starting with ${worldInfo}. It may take 5-10 minutes to fully boot. You'll receive a notification with the join code as soon as the server is ready.`,
+      status: 'pending',
+      world: worldConfig ? {
+        name: worldConfig.name,
+        worldName: worldConfig.worldName
+      } : null
+    });
   } catch (error) {
     console.error("Error starting server:", error);
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ message: "Failed to start server" })
-    };
+    return createErrorResponse("Failed to start server");
   }
 }
 
@@ -314,23 +259,17 @@ async function stopServer(): Promise<APIGatewayProxyResult> {
     const status = await getInstanceStatus();
     
     if (status === 'stopped') {
-      return {
-        statusCode: 200,
-        body: JSON.stringify({ 
-          message: "Server is already stopped",
-          status: status
-        })
-      };
+      return createSuccessResponse({
+        message: "Server is already stopped",
+        status: status
+      });
     }
     
     if (status === 'stopping') {
-      return {
-        statusCode: 200,
-        body: JSON.stringify({ 
-          message: "Server is already stopping",
-          status: status
-        })
-      };
+      return createSuccessResponse({
+        message: "Server is already stopping",
+        status: status
+      });
     }
     
     // Stop the instance
@@ -340,76 +279,273 @@ async function stopServer(): Promise<APIGatewayProxyResult> {
     
     await ec2Client.send(command);
     
-    return {
-      statusCode: 200,
-      body: JSON.stringify({ 
-        message: "Server is shutting down. Save your game before disconnecting!",
-        status: 'stopping'
-      })
-    };
+    return createSuccessResponse({
+      message: "Server is shutting down. Save your game before disconnecting!",
+      status: 'stopping'
+    });
   } catch (error) {
     console.error("Error stopping server:", error);
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ message: "Failed to stop server" })
-    };
+    return createErrorResponse("Failed to stop server");
   }
 }
 
 async function getServerStatus(): Promise<APIGatewayProxyResult> {
   try {
     const status = await getInstanceStatus();
-    let message = "";
+    const message = getStatusMessage(status);
     
-    switch (status) {
-      case 'running':
-        message = "Server is online and ready to play!";
-        break;
-      case 'pending':
-        message = "Server is starting up. Please wait a few minutes.";
-        break;
-      case 'stopping':
-        message = "Server is shutting down.";
-        break;
-      case 'stopped':
-        message = "Server is offline. Use the start command to launch it.";
-        break;
-      default:
-        message = `Server status: ${status}`;
-    }
-    
-    return {
-      statusCode: 200,
-      body: JSON.stringify({ 
-        message: message,
-        status: status
-      })
-    };
+    return createSuccessResponse({
+      message: message,
+      status: status
+    });
   } catch (error) {
     console.error("Error getting server status:", error);
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ message: "Failed to get server status" })
-    };
+    return createErrorResponse("Failed to get server status");
   }
 }
 
-async function getInstanceStatus(): Promise<string> {
+/**
+ * Handle backup actions (create, list)
+ */
+async function handleBackup(action: string): Promise<APIGatewayProxyResult> {
   try {
-    const command = new DescribeInstancesCommand({
-      InstanceIds: [VALHEIM_INSTANCE_ID]
-    });
+    // Get instance status first - need running server for backups
+    const status = await getInstanceStatus();
     
-    const response = await ec2Client.send(command);
-    
-    if (!response.Reservations || response.Reservations.length === 0 || 
-        !response.Reservations[0].Instances || response.Reservations[0].Instances.length === 0) {
-      throw new Error("Instance not found");
+    switch(action) {
+      case 'create':
+        // Server must be running to create a backup
+        if (status !== 'running') {
+          return createBadRequestResponse(
+            "Cannot create backup: Server is not running",
+            { status }
+          );
+        }
+        
+        // Use SSM Run Command to trigger the backup script on the EC2 instance
+        // This approach ensures we get a consistent backup while the server is running
+        try {
+          // Get the active world configuration
+          let worldInfo = 'default world';
+          try {
+            const paramResult = await ssmClient.send(new GetParameterCommand({
+              Name: SSM_PARAMS.ACTIVE_WORLD
+            }));
+            
+            if (paramResult.Parameter?.Value) {
+              const worldConfig = JSON.parse(paramResult.Parameter.Value);
+              worldInfo = `${worldConfig.name} (${worldConfig.worldName})`;
+            }
+          } catch (err) {
+            console.log('No active world parameter found, using default');
+          }
+          
+          const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+          
+          // Execute the backup script on the EC2 instance using SSM Run Command
+          const command = new SendCommandCommand({
+            DocumentName: 'AWS-RunShellScript',
+            InstanceIds: [VALHEIM_INSTANCE_ID],
+            Parameters: {
+              'commands': ['/usr/local/bin/backup-valheim.sh']
+            },
+            Comment: `Manual backup triggered via Discord at ${timestamp}`
+          });
+          
+          await ssmClient.send(command);
+          
+          return createSuccessResponse({
+            message: `Backup initiated for ${worldInfo}. This may take a few minutes to complete.`,
+            status: "pending",
+            timestamp: timestamp
+          });
+        } catch (error) {
+          console.error("Error creating backup:", error);
+          return createErrorResponse("Failed to create backup");
+        }
+        
+      case 'list':
+      default:
+        try {
+          // Get active world to determine where backups would be
+          let backupPath = 'worlds/default';
+          let worldName = 'default';
+          try {
+            const paramResult = await ssmClient.send(new GetParameterCommand({
+              Name: SSM_PARAMS.ACTIVE_WORLD
+            }));
+            
+            if (paramResult.Parameter?.Value) {
+              const worldConfig = JSON.parse(paramResult.Parameter.Value);
+              worldName = worldConfig.name;
+              backupPath = `worlds/${worldName}`;
+            }
+          } catch (err) {
+            console.log('No active world parameter found, using default path');
+          }
+          
+          // List recent backups from S3
+          const command = new ListObjectsV2Command({
+            Bucket: BACKUP_BUCKET_NAME,
+            Prefix: backupPath + '/',
+            MaxKeys: 5  // Limit to the 5 most recent backups
+          });
+          
+          const response = await s3Client.send(command);
+          
+          // Format the backup information
+          const backups = response.Contents ? 
+            response.Contents
+              .sort((a, b) => (b.LastModified?.getTime() || 0) - (a.LastModified?.getTime() || 0))
+              .map(item => {
+                // Extract the timestamp from the filename
+                const filename = item.Key?.split('/').pop() || '';
+                const size = Math.round((item.Size || 0) / (1024 * 1024) * 10) / 10; // Convert to MB with 1 decimal
+                const date = item.LastModified ? 
+                  item.LastModified.toISOString().replace('T', ' ').substring(0, 19) : 'Unknown';
+                
+                return {
+                  filename,
+                  size: `${size} MB`,
+                  date,
+                  key: item.Key
+                };
+              }) : [];
+          
+          return createSuccessResponse({
+            message: "Recent backups are created automatically when the server starts and stops. Manual backups can be created with the 'backup create' command.",
+            backups_location: backupPath,
+            world_name: worldName,
+            server_status: status,
+            recent_backups: backups,
+            total_backups: response.KeyCount || 0
+          });
+        } catch (error) {
+          console.error("Error listing backups:", error);
+          return createErrorResponse("Failed to list backups");
+        }
     }
-    
-    return response.Reservations[0].Instances[0].State?.Name || 'unknown';
   } catch (error) {
-    console.error("Error getting instance status:", error);
-    throw error;
+    console.error("Error handling backup action:", error);
+    return createErrorResponse("Failed to handle backup request");
   }
+}
+
+/**
+ * Random Hugin (raven) responses in true Valheim style
+ */
+async function hailHugin(): Promise<APIGatewayProxyResult> {
+  const responses = [
+    "Hrafn! The All-Father sent me to guide you.",
+    "Skål! Your halls await worthy warriors!",
+    "The server stands ready, will you answer the call?",
+    "The ravens watch over your world. Odin is pleased.",
+    "Hail, warrior! The bifrost stands ready for your journey.",
+    "I have sailed the server seas. Many treasures await.",
+    "The mead halls echo with tales of your adventures.",
+    "Beware the plains, little viking!",
+    "The world tree Yggdrasil connects all servers in its branches.",
+    "The Valkyries await those who would challenge the plains...",
+    "Hugin remembers all backups in Odin's wisdom.",
+    "The serpent stirs in deep waters, vikings.",
+    "Your longboat is anchored in the digital harbor.",
+    "The wolves howl at the moon, waiting for players to return.",
+    "The trolls sleep fitfully in their caves. Will you wake them?",
+    "I spy with my raven eye, players venturing forth!"
+  ];
+  
+  // Select a random response
+  const randomIndex = Math.floor(Math.random() * responses.length);
+  
+  return createSuccessResponse({
+    message: responses[randomIndex],
+    image: "https://static.wikia.nocookie.net/valheim/images/7/7d/Hugin.png"
+  });
+}
+
+/**
+ * Show help for all available commands
+ */
+async function showHelp(): Promise<APIGatewayProxyResult> {
+  const commands = [
+    {
+      name: "start",
+      description: "Start the Valheim server",
+      usage: "/valheim start [world_name]",
+      examples: [
+        "/valheim start",
+        "/valheim start MyWorld"
+      ]
+    },
+    {
+      name: "stop",
+      description: "Stop the Valheim server",
+      usage: "/valheim stop",
+      examples: [
+        "/valheim stop"
+      ]
+    },
+    {
+      name: "status",
+      description: "Check the status of the server",
+      usage: "/valheim status",
+      examples: [
+        "/valheim status"
+      ]
+    },
+    {
+      name: "list-worlds",
+      description: "List available worlds for this Discord server",
+      usage: "/valheim list-worlds",
+      examples: [
+        "/valheim list-worlds"
+      ]
+    },
+    {
+      name: "backup",
+      description: "Manage server backups",
+      usage: "/valheim backup [create|list]",
+      examples: [
+        "/valheim backup list",
+        "/valheim backup create"
+      ]
+    },
+    {
+      name: "hail",
+      description: "Greet Hugin for Valheim wisdom",
+      usage: "/valheim hail",
+      examples: [
+        "/valheim hail"
+      ]
+    },
+    {
+      name: "help",
+      description: "Show this help message",
+      usage: "/valheim help",
+      examples: [
+        "/valheim help"
+      ]
+    }
+  ];
+  
+  // Get the active world configuration
+  let worldInfo = "";
+  try {
+    const paramResult = await ssmClient.send(new GetParameterCommand({
+      Name: SSM_PARAMS.ACTIVE_WORLD
+    }));
+    
+    if (paramResult.Parameter?.Value) {
+      const worldConfig = JSON.parse(paramResult.Parameter.Value);
+      worldInfo = `\n\nCurrent active world: ${worldConfig.name} (${worldConfig.worldName})`;
+    }
+  } catch (err) {
+    // No active world parameter found
+  }
+  
+  return createSuccessResponse({
+    message: "HuginBot - Valheim Server Manager",
+    description: `Available commands for controlling your Valheim server:${worldInfo}`,
+    commands: commands
+  });
 }

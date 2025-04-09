@@ -206,21 +206,49 @@ describe('Cleanup Backups Lambda', () => {
   });
   
   test('Error handling when S3 operations fail', async () => {
-    // Force S3 client to reject
-    const originalMockS3Send = mockS3Send;
-    mockS3Send.mockRejectedValueOnce(new Error('S3 API Error'));
+    // Save original implementation
+    const originalImplementation = mockS3Send.getMockImplementation();
+    
+    // Mock implementation that throws on first call but returns normally after
+    let callCount = 0;
+    mockS3Send.mockImplementation((command) => {
+      callCount++;
+      if (callCount === 1) {
+        throw new Error('S3 API Error');
+      }
+      // For subsequent calls, use original mock implementation
+      // Check if originalImplementation exists before calling it
+      if (typeof originalImplementation === 'function') {
+        return originalImplementation(command);
+      }
+      // Fallback in case original implementation is undefined
+      return Promise.resolve({});
+    });
     
     const consoleSpy = jest.spyOn(console, 'error');
     
-    await expect(handler()).rejects.toThrow('S3 API Error');
-    
-    expect(consoleSpy).toHaveBeenCalledWith(
-      'Error cleaning up backups:',
-      expect.any(Error)
-    );
+    try {
+      await handler();
+      fail('Expected handler to throw an error');
+    } catch (error: unknown) {
+      // Type guard to safely access error properties
+      if (error instanceof Error) {
+        expect(error.message).toBe('S3 API Error');
+        expect(consoleSpy).toHaveBeenCalledWith(
+          'Error cleaning up backups:',
+          expect.objectContaining({ message: 'S3 API Error' })
+        );
+      } else {
+        // If it's not an Error instance, fail the test
+        fail('Expected error to be an instance of Error');
+      }
+    }
     
     consoleSpy.mockRestore();
     mockS3Send.mockReset();
-    mockS3Send.mockImplementation(originalMockS3Send);
+    // Only apply original implementation if it exists
+    if (typeof originalImplementation === 'function') {
+      mockS3Send.mockImplementation(originalImplementation);
+    }
   });
 });

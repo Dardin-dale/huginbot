@@ -10,6 +10,7 @@ HuginBot is an AWS CDK project that provisions and manages a Valheim game server
 - **Automated Backups**: Scheduled backups to S3 with configurable retention
 - **World Management**: Easy CLI for adding/editing worlds and configurations
 - **Secure Authentication**: Discord verification for server control
+- **BepInEx Mod Support**: Load custom mods for your Valheim worlds
 
 ## Setup Requirements
 
@@ -76,6 +77,14 @@ HuginBot is an AWS CDK project that provisions and manages a Valheim game server
 
 2. The deployment will output API Gateway endpoints that you need to configure in your Discord application settings.
 
+3. To undeploy all resources when finished:
+   ```
+   npm run cli
+   ```
+   Then select "Undeploy All Infrastructure" and follow the confirmation prompts.
+   
+   > ⚠️ **Warning**: Undeploying will permanently delete all AWS resources including EC2 instances and S3 buckets with your world backups. Make sure to download your backups first!
+
 ## Usage
 
 ### CLI Commands
@@ -85,6 +94,21 @@ HuginBot is an AWS CDK project that provisions and manages a Valheim game server
 * `npm run test`    - Run Jest unit tests
 * `npm run cli`     - Launch the CLI interface
 * `npm run cdk`     - Run CDK commands
+
+### Local Testing
+
+To test a Valheim server locally:
+
+1. Launch the CLI:
+   ```
+   npm run cli
+   ```
+
+2. Select "Configure Local Testing" and follow the prompts
+3. Select "Start Local Test Server" to run a mock server
+4. Launch Valheim and connect to `127.0.0.1:2456`
+
+The local test server simulates the AWS deployment and allows you to test server controls and Discord integration without deploying to AWS.
 
 ### Managing Worlds
 
@@ -98,6 +122,40 @@ HuginBot is an AWS CDK project that provisions and manages a Valheim game server
    - Configure Discord server associations
    - Edit world settings
    - Remove worlds
+
+### Custom Worlds and Pre-existing Saves
+
+You can set up custom worlds with pre-existing save data:
+
+1. Place your world files in the `worlds/WORLD_NAME/` directory:
+   ```
+   worlds/MyWorld/
+   ├── MyWorld.db
+   ├── MyWorld.fwl
+   └── ... (other world files)
+   ```
+
+2. During deployment, these files will be used to bootstrap your Valheim server
+
+HuginBot will automatically recognize worlds in the `worlds/` directory and make them available for selection.
+
+### Installing Mods
+
+HuginBot supports BepInEx mods through the llosche Docker container:
+
+1. Place your mod files in the `mods/` directory:
+   ```
+   mods/
+   ├── SomeValheimMod.dll
+   ├── AnotherMod/
+   │   ├── AnotherMod.dll
+   │   └── assets/
+   └── ... (other mod files)
+   ```
+
+2. During deployment, these mods will be installed in the BepInEx plugins directory
+
+The server automatically enables BepInEx for all installed mods.
 
 ### Discord Commands
 
@@ -124,26 +182,31 @@ HuginBot uses a serverless architecture with:
 
 The server automatically backs up to S3 on a schedule (default: daily). You can:
 
-1. Use the CLI to download any backup (`npm run cli` → "Download Backup")
-2. Extract the backup locally
-3. Browse and modify game files
-4. Upload modified files back to the server
+1. View and manage backups using the CLI (`npm run cli` → "Download Backup"):
+   - Select a world to browse its backups 
+   - Choose a specific backup to download
+   - Restore world files directly to your `worlds/` directory
+   - Download full backups for manual inspection
+
+2. Restore worlds from backups:
+   - Restore directly to your local `worlds/` folder
+   - Launch a test server with the restored world
+   - Deploy the restored world to AWS
 
 Backup retention is configurable through the `BACKUPS_TO_KEEP` environment variable.
 
 ## Multiple Worlds Support
 
-HuginBot supports multiple Valheim worlds:
+HuginBot simplifies managing multiple Valheim worlds:
 
-1. **Discord Server Integration**:
-   - Each Discord server can have its own world
+1. **Simplified Configuration**:
+   - Each world has a world_name that determines both the server name and world save name
+   - No need to manage separate server_name and world_name parameters
+
+2. **Discord Server Integration**:
+   - Each Discord server can be linked to a specific world
    - Players can only control their own server's world
    - Prevents accidental overwriting of other servers' progress
-
-2. **World Management**:
-   - Use CLI to add, edit, and remove world configurations
-   - Configure different passwords for each world
-   - Automatic world switching when starting the server
 
 3. **World-Specific Backups**:
    - Backups are organized by world name in S3
@@ -156,8 +219,9 @@ To test locally without incurring AWS costs:
 
 1. Set up a local environment:
    ```
-   npm run start:local
+   npm run cli
    ```
+   Then choose "Configure Local Testing" followed by "Start Local Test Server"
 
 2. Run tests:
    ```
@@ -178,8 +242,7 @@ To test locally without incurring AWS costs:
 | `AWS_REGION` | AWS region to deploy to | `us-west-2` |
 | `AWS_PROFILE` | AWS CLI profile to use | `default` |
 | `CUSTOM_URL` | Custom domain (optional) | `myvalheim.example.com` |
-| `VALHEIM_SERVER_NAME` | Server name in game browser | `MyValheimServer` |
-| `VALHEIM_WORLD_NAME` | Default world name | `Midgard` |
+| `VALHEIM_WORLD_NAME` | World name (used for both server and world) | `Midgard` |
 | `VALHEIM_SERVER_PASSWORD` | Server password | `secretpassword` |
 | `VALHEIM_ADMIN_IDS` | Steam IDs for admins | `76561198012345678` |
 | `DISCORD_*` | Discord integration vars | See Discord Setup |
@@ -189,7 +252,7 @@ To test locally without incurring AWS costs:
 
 ## Future Enhancements
 
-- [ ] Add mod installation interface
+- [x] Add mod installation interface
 - [ ] Implement server monitoring and alerts
 - [ ] Add player statistics and tracking
 - [ ] Enhance Discord bot with more commands and features

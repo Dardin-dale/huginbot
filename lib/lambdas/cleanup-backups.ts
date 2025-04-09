@@ -1,9 +1,12 @@
-import { S3Client, ListObjectsV2Command, DeleteObjectCommand } from "@aws-sdk/client-s3";
+import { ListObjectsV2Command, DeleteObjectCommand } from "@aws-sdk/client-s3";
+import { s3Client, BACKUP_BUCKET_NAME } from "./utils/aws-clients";
 
-const s3Client = new S3Client();
-const BACKUP_BUCKET_NAME = process.env.BACKUP_BUCKET_NAME || '';
+// Get the number of backups to keep from environment variables
 const BACKUPS_TO_KEEP = parseInt(process.env.BACKUPS_TO_KEEP || '7', 10);
 
+/**
+ * Lambda handler for cleaning up old backups
+ */
 export async function handler(): Promise<void> {
   if (!BACKUP_BUCKET_NAME) {
     console.error('BACKUP_BUCKET_NAME environment variable is not set');
@@ -53,6 +56,9 @@ export async function handler(): Promise<void> {
   }
 }
 
+/**
+ * Clean up backups within a specific folder
+ */
 async function cleanupBackupsInFolder(folderPrefix: string): Promise<void> {
   try {
     // List all backups in the folder

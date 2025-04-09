@@ -33,9 +33,25 @@
 - Test environment variables should be set in the test setup
 - Tests should be isolated and not depend on each other
 
+## Security Best Practices
+- Follow the principle of least privilege for all IAM roles and policies
+- Avoid using wildcards (`*`) in IAM policy resources
+- Scope all IAM permissions to specific resources when possible
+- Use IAM policy conditions to further restrict permissions
+- Generate secure auth tokens using cryptographically secure methods
+- Store sensitive values in AWS Secrets Manager instead of environment variables
+- Implement proper API Gateway authorization for all endpoints
+- Validate and sanitize all user inputs before using in AWS API calls
+- Enable AWS CloudTrail for auditing and monitoring resource access
+- Restrict network access to the minimum required ports and IP ranges
+- Regularly audit and rotate credentials
+- Use encrypted EBS volumes for all EC2 instances
+- Apply security patches regularly
+
 ## Discord Integration
 - All Discord API requests need authentication using the `DISCORD_AUTH_TOKEN`
 - Lambda functions use `authConfig.bypass` for testing
 - Authentication can be enabled/disabled during tests
 - The authentication token should be kept secure and never committed to the repository
 - API Gateway endpoints should be secured with proper authentication
+- Consider using a more robust authentication mechanism for production

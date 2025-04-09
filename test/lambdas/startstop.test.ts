@@ -97,8 +97,22 @@ const mockHandler = jest.fn().mockImplementation(async (event: APIGatewayProxyEv
 
 // Mock the module
 jest.mock('../../lib/lambdas/startstop', () => ({
-  handler: mockHandler,
-  authConfig: { bypass: true }
+  handler: mockHandler
+}));
+
+// Mock the auth module for testing
+jest.mock('../../lib/lambdas/utils/auth', () => ({
+  setupAuth: jest.fn().mockReturnValue(true),
+  authConfig: { bypass: true },
+  isValidDiscordRequest: jest.fn().mockReturnValue(true),
+  getUnauthorizedResponse: jest.fn().mockReturnValue({
+    statusCode: 401,
+    body: JSON.stringify({ message: "Unauthorized" })
+  }),
+  getMissingConfigResponse: jest.fn().mockReturnValue({
+    statusCode: 500,
+    body: JSON.stringify({ message: "Server configuration error" })
+  })
 }));
 
 // Import after mocking
@@ -108,6 +122,7 @@ describe('StartStop Lambda', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     process.env.NODE_ENV = 'test';
+    process.env.AUTH_BYPASS = 'true';
     process.env.VALHEIM_INSTANCE_ID = 'i-12345678901234567';
     process.env.DISCORD_AUTH_TOKEN = 'test-token';
     process.env.WORLD_CONFIGURATIONS = 'TestWorld,123456789012345678,ValheimTest,testpassword;AnotherWorld,876543210987654321,ValheimOther,otherpassword';

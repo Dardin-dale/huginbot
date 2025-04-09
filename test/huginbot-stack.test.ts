@@ -23,7 +23,7 @@ describe('HuginbotStack', () => {
   });
 
   test('Creates Lambda Functions', () => {
-    template.resourceCountIs('AWS::Lambda::Function', 2);
+    template.resourceCountIs('AWS::Lambda::Function', 4);
   });
 
   test('Creates SSM Parameter', () => {

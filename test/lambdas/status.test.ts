@@ -19,9 +19,22 @@ const mockHandler = async (event: APIGatewayProxyEvent): Promise<any> => {
 
 // Mock the entire module
 jest.mock('../../lib/lambdas/status', () => ({
+  handler: mockHandler
+}));
+
+// Mock the auth module for testing
+jest.mock('../../lib/lambdas/utils/auth', () => ({
+  setupAuth: jest.fn().mockReturnValue(true),
+  authConfig: { bypass: true },
   isValidDiscordRequest: mockIsValidDiscordRequest,
-  handler: mockHandler,
-  authConfig: { bypass: true }
+  getUnauthorizedResponse: jest.fn().mockReturnValue({
+    statusCode: 401,
+    body: JSON.stringify({ message: "Unauthorized" })
+  }),
+  getMissingConfigResponse: jest.fn().mockReturnValue({
+    statusCode: 500,
+    body: JSON.stringify({ message: "Server configuration error" })
+  })
 }));
 
 // Import after mocks are set up
@@ -31,6 +44,7 @@ describe('Status Lambda', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     process.env.NODE_ENV = 'test';
+    process.env.AUTH_BYPASS = 'true';
     process.env.VALHEIM_INSTANCE_ID = 'i-12345678901234567';
     process.env.DISCORD_AUTH_TOKEN = 'test-token';
   });

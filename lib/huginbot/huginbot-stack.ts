@@ -18,9 +18,17 @@ import {
 import { 
   PolicyStatement 
 } from "aws-cdk-lib/aws-iam";
+import {
+  Rule,
+  EventPattern
+} from "aws-cdk-lib/aws-events";
+import {
+  LambdaFunction
+} from "aws-cdk-lib/aws-events-targets";
 import { 
   StringParameter 
 } from "aws-cdk-lib/aws-ssm";
+import * as path from "path";
 import { Construct } from "constructs";
 
 interface HuginbotStackProps extends StackProps {
@@ -35,6 +43,12 @@ interface HuginbotStackProps extends StackProps {
    * This is NOT the Discord bot token, but a simple shared secret.
    */
   discordAuthToken?: string;
+  
+  /**
+   * Discord webhook URL for sending server notifications.
+   * This is used to send messages directly to a channel.
+   */
+  discordWebhookUrl?: string;
 }
 
 export class HuginbotStack extends Stack {
@@ -65,6 +79,7 @@ export class HuginbotStack extends Stack {
       DISCORD_AUTH_TOKEN: discordAuthToken,
       BACKUP_BUCKET_NAME: process.env.BACKUP_BUCKET_NAME || '',
       WORLD_CONFIGURATIONS: process.env.WORLD_CONFIGURATIONS || '',
+      DISCORD_WEBHOOK_URL: props.discordWebhookUrl || '',
     };
     
     // Remove empty values to avoid test issues
@@ -95,18 +110,128 @@ export class HuginbotStack extends Stack {
       handler: "handler",
     });
 
-    // Grant EC2 permissions to the Lambda functions
+    // Grant EC2 permissions to the Lambda functions - scoped to specific instance
     const ec2Policy = new PolicyStatement({
       actions: [
         "ec2:DescribeInstances",
         "ec2:StartInstances",
         "ec2:StopInstances",
       ],
-      resources: ["*"], // You should scope this down to the specific instance ARN in production
+      resources: [
+        `arn:aws:ec2:${this.region}:${this.account}:instance/${props.valheimInstanceId}`
+      ],
     });
+    
+    // Add permission for SSM document - scoped to specific document and instance
+    const ssmDocumentPolicy = new PolicyStatement({
+      actions: [
+        "ssm:SendCommand",
+      ],
+      resources: [
+        `arn:aws:ssm:${this.region}:${this.account}:document/AWS-RunShellScript`,
+        `arn:aws:ec2:${this.region}:${this.account}:instance/${props.valheimInstanceId}`
+      ]
+    });
+    
+    // Add permission for SSM command invocation
+    const ssmCommandPolicy = new PolicyStatement({
+      actions: [
+        "ssm:GetCommandInvocation"
+      ],
+      resources: [
+        `arn:aws:ssm:${this.region}:${this.account}:*`
+      ]
+    });
+    
+    // Add S3 backup policy with explicit bucket name
+    const backupBucketName = process.env.BACKUP_BUCKET_NAME;
+    let s3BackupPolicy: PolicyStatement;
+    
+    if (backupBucketName) {
+      s3BackupPolicy = new PolicyStatement({
+        actions: [
+          "s3:ListBucket",
+          "s3:GetObject"
+        ],
+        resources: [
+          `arn:aws:s3:::${backupBucketName}`,
+          `arn:aws:s3:::${backupBucketName}/worlds/*`
+        ]
+      });
+    } else {
+      // During development/testing only, when bucket name is not known
+      // This should never be deployed to production
+      s3BackupPolicy = new PolicyStatement({
+        actions: [
+          "s3:ListBucket",
+          "s3:GetObject"
+        ],
+        resources: [
+          `arn:aws:s3:::*`,
+        ],
+        conditions: {
+          "StringLike": {
+            "s3:prefix": ["worlds/*"]
+          }
+        }
+      });
+    }
 
     startStopFunction.addToRolePolicy(ec2Policy);
+    startStopFunction.addToRolePolicy(ssmDocumentPolicy);
+    startStopFunction.addToRolePolicy(ssmCommandPolicy);
+    startStopFunction.addToRolePolicy(s3BackupPolicy);
+    
     statusFunction.addToRolePolicy(ec2Policy);
+    
+    // Create the join code notification Lambda
+    const notifyJoinCodeFunction = new NodejsFunction(this, "NotifyJoinCodeFunction", {
+      ...lambdaDefaultProps,
+      entry: "lib/lambdas/notify-join-code.ts",
+      handler: "handler",
+      timeout: Duration.seconds(30), // Give more time for Discord API
+    });
+    
+    // Create the auto-shutdown notification Lambda
+    const notifyShutdownFunction = new NodejsFunction(this, "NotifyShutdownFunction", {
+      ...lambdaDefaultProps,
+      entry: "lib/lambdas/notify-shutdown.ts",
+      handler: "handler",
+      timeout: Duration.seconds(30), // Give more time for Discord API
+    });
+    
+    // Grant SSM Parameter Store access to the notification Lambdas - scoped to specific parameters
+    const ssmParameterPolicy = new PolicyStatement({
+      actions: [
+        "ssm:GetParameter",
+      ],
+      resources: [
+        `arn:aws:ssm:${this.region}:${this.account}:parameter/huginbot/*`
+      ],
+    });
+    
+    notifyJoinCodeFunction.addToRolePolicy(ssmParameterPolicy);
+    notifyShutdownFunction.addToRolePolicy(ssmParameterPolicy);
+    
+    // Create EventBridge rule to trigger the notification Lambda when join code is detected
+    const joinCodeEventRule = new Rule(this, "JoinCodeEventRule", {
+      eventPattern: {
+        source: ["valheim.server"],
+        detailType: ["PlayFab.JoinCodeDetected"],
+      },
+    });
+    
+    joinCodeEventRule.addTarget(new LambdaFunction(notifyJoinCodeFunction));
+    
+    // Create EventBridge rule for auto-shutdown notifications
+    const shutdownEventRule = new Rule(this, "ShutdownEventRule", {
+      eventPattern: {
+        source: ["valheim.server"],
+        detailType: ["Server.AutoShutdown"],
+      },
+    });
+    
+    shutdownEventRule.addTarget(new LambdaFunction(notifyShutdownFunction));
 
     // Create API Gateway
     const api = new RestApi(this, "HuginbotApi", {
@@ -142,7 +267,9 @@ export class HuginbotStack extends Stack {
   }
 
   private generateRandomToken(): string {
-    return Math.random().toString(36).substring(2, 15) + 
-           Math.random().toString(36).substring(2, 15);
+    // Use Node.js crypto module for cryptographically secure random token
+    const crypto = require('crypto');
+    // Generate 32 bytes (256 bits) of secure random data and convert to hex
+    return crypto.randomBytes(32).toString('hex');
   }
 }

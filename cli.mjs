@@ -8,6 +8,7 @@ import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
 import fs from 'fs';
 import path from 'path';
+import os from 'os';
 
 const cloudformation = new CloudFormation();
 const ec2 = new EC2();
@@ -197,6 +198,140 @@ async function deployInfrastructure() {
   }
 }
 
+async function undeployInfrastructure() {
+  // Check if stacks are deployed
+  const valheimStackName = 'ValheimStack';
+  const huginbotStackName = 'HuginbotStack';
+  
+  const valheimDeployed = await isStackDeployed(valheimStackName);
+  const huginbotDeployed = await isStackDeployed(huginbotStackName);
+  
+  if (!valheimDeployed && !huginbotDeployed) {
+    console.log('No HuginBot stacks are currently deployed.');
+    return;
+  }
+  
+  // Show warning
+  console.log('\n\n');
+  console.log('⚠️  WARNING: UNDEPLOYING INFRASTRUCTURE ⚠️');
+  console.log('=====================================');
+  console.log('This will PERMANENTLY DELETE all deployed resources, including:');
+  console.log('- EC2 instances running your Valheim server');
+  console.log('- S3 buckets containing your world backups');
+  console.log('- API Gateway endpoints for Discord integration');
+  console.log('- Lambda functions and other AWS resources');
+  console.log('\nWorld backups will be PERMANENTLY LOST unless you download them first!');
+  console.log('\n');
+  
+  // First confirmation
+  const { confirmUndeploy } = await inquirer.prompt([
+    {
+      type: 'confirm',
+      name: 'confirmUndeploy',
+      message: 'Are you sure you want to undeploy all HuginBot infrastructure?',
+      default: false
+    }
+  ]);
+  
+  if (!confirmUndeploy) {
+    console.log('Undeploy cancelled.');
+    return;
+  }
+  
+  // Get the name of the world to type for confirmation
+  let worldName = config.worldName || 'ValheimWorld';
+  
+  // Second confirmation - type the world name
+  const { worldNameConfirmation } = await inquirer.prompt([
+    {
+      type: 'input',
+      name: 'worldNameConfirmation',
+      message: `To confirm, please type the name of your primary world (${worldName}):`,
+      validate: (input) => {
+        if (input === worldName) {
+          return true;
+        }
+        return 'The world name does not match. Please try again or press Ctrl+C to cancel.';
+      }
+    }
+  ]);
+  
+  // Final confirmation
+  const { finalConfirmation } = await inquirer.prompt([
+    {
+      type: 'confirm',
+      name: 'finalConfirmation',
+      message: 'THIS IS YOUR FINAL WARNING: Proceed with undeploying all resources?',
+      default: false
+    }
+  ]);
+  
+  if (!finalConfirmation) {
+    console.log('Undeploy cancelled.');
+    return;
+  }
+  
+  // Ask if they want to back up their worlds first
+  const { backupFirst } = await inquirer.prompt([
+    {
+      type: 'confirm',
+      name: 'backupFirst',
+      message: 'Would you like to download backups of your worlds before undeploying?',
+      default: true
+    }
+  ]);
+  
+  if (backupFirst) {
+    console.log('Launching backup tool...');
+    await downloadBackups();
+    
+    // After backup, confirm again
+    const { proceedAfterBackup } = await inquirer.prompt([
+      {
+        type: 'confirm',
+        name: 'proceedAfterBackup',
+        message: 'Proceed with undeploying after backup?',
+        default: true
+      }
+    ]);
+    
+    if (!proceedAfterBackup) {
+      console.log('Undeploy cancelled.');
+      return;
+    }
+  }
+  
+  console.log('Beginning undeploy process...');
+  
+  // Undeploy in reverse order of deployment
+  if (huginbotDeployed) {
+    console.log(`Undeploying ${huginbotStackName}...`);
+    try {
+      const command = `npx cdk destroy ${huginbotStackName} --force`;
+      execSync(command, { stdio: 'inherit' });
+      console.log(`${huginbotStackName} successfully undeployed.`);
+    } catch (error) {
+      console.error(`Error undeploying ${huginbotStackName}:`, error);
+      console.log('Continuing with remaining undeployment...');
+    }
+  }
+  
+  if (valheimDeployed) {
+    console.log(`Undeploying ${valheimStackName}...`);
+    try {
+      const command = `npx cdk destroy ${valheimStackName} --force`;
+      execSync(command, { stdio: 'inherit' });
+      console.log(`${valheimStackName} successfully undeployed.`);
+    } catch (error) {
+      console.error(`Error undeploying ${valheimStackName}:`, error);
+      console.log('Undeployment process completed with errors.');
+      return;
+    }
+  }
+  
+  console.log('All HuginBot infrastructure has been successfully undeployed.');
+}
+
 // Mock EC2 instance for local testing
 let mockEc2State = 'stopped';
 
@@ -223,20 +358,66 @@ async function downloadBackups() {
     // Create S3 client
     const s3 = new S3Client();
     
-    // List available backups
-    const listCommand = new ListObjectsV2Command({
+    // List available backup folders (worlds)
+    const listFoldersCommand = new ListObjectsV2Command({
       Bucket: bucketName,
+      Delimiter: '/'
     });
     
-    const response = await s3.send(listCommand);
+    const foldersResponse = await s3.send(listFoldersCommand);
     
-    if (!response.Contents || response.Contents.length === 0) {
-      console.log('No backups found in bucket');
+    // Get the common prefixes which represent folders
+    const worldFolders = foldersResponse.CommonPrefixes || [];
+    
+    if (worldFolders.length === 0) {
+      console.log('No world backups found in bucket');
+      return;
+    }
+    
+    // Ask which world backup to browse
+    const worldChoices = worldFolders
+      .map(prefix => ({
+        name: prefix.Prefix.replace('worlds/', '').replace('/', ''),
+        value: prefix.Prefix
+      }))
+      .filter(world => world.name); // Filter out empty names
+    
+    if (worldChoices.length === 0) {
+      console.log('No world backups found in bucket');
+      return;
+    }
+    
+    worldChoices.push({ name: 'Cancel', value: null });
+    
+    const { worldToRestore } = await inquirer.prompt([
+      {
+        type: 'list',
+        name: 'worldToRestore',
+        message: 'Select a world to restore backups from:',
+        choices: worldChoices
+      }
+    ]);
+    
+    if (!worldToRestore) {
+      console.log('Restore cancelled');
+      return;
+    }
+    
+    // Get backups for the selected world
+    const listBackupsCommand = new ListObjectsV2Command({
+      Bucket: bucketName,
+      Prefix: worldToRestore
+    });
+    
+    const backupsResponse = await s3.send(listBackupsCommand);
+    
+    if (!backupsResponse.Contents || backupsResponse.Contents.length === 0) {
+      console.log(`No backups found for ${worldToRestore}`);
       return;
     }
     
     // Sort backups by last modified date (most recent first)
-    const backups = response.Contents
+    const backups = backupsResponse.Contents
       .filter(item => item.Key && item.Key.endsWith('.tar.gz'))
       .sort((a, b) => {
         const dateA = a.LastModified ? a.LastModified.getTime() : 0;
@@ -249,11 +430,11 @@ async function downloadBackups() {
         size: formatSize(item.Size || 0)
       }));
     
-    console.log(`Found ${backups.length} backups in bucket ${bucketName}`);
+    console.log(`Found ${backups.length} backups for ${worldToRestore}`);
     
     // Ask which backup to download
     const backupChoices = backups.map((backup, index) => ({
-      name: `${backup.name} (${backup.date}, ${backup.size})`,
+      name: `${path.basename(backup.name)} (${backup.date}, ${backup.size})`,
       value: backup.name
     }));
     
@@ -273,23 +454,101 @@ async function downloadBackups() {
       return;
     }
     
-    // Ask for download location
-    const { downloadDir } = await inquirer.prompt([
+    // Extract world name from folder path
+    const worldName = worldToRestore.replace('worlds/', '').replace('/', '');
+    
+    // Offer options for what to do with the backup
+    const { backupAction } = await inquirer.prompt([
       {
-        type: 'input',
-        name: 'downloadDir',
-        message: 'Enter download directory:',
-        default: process.cwd()
+        type: 'list',
+        name: 'backupAction',
+        message: 'What would you like to do with this backup?',
+        choices: [
+          { 
+            name: `Restore to local worlds folder (./worlds/${worldName})`, 
+            value: 'restore_local_world' 
+          },
+          { 
+            name: 'Download to custom location', 
+            value: 'download_custom' 
+          },
+          { 
+            name: 'Cancel', 
+            value: 'cancel' 
+          }
+        ]
       }
     ]);
     
-    console.log(`Downloading ${backupToDownload} to ${downloadDir}...`);
+    if (backupAction === 'cancel') {
+      console.log('Operation cancelled');
+      return;
+    }
     
-    // Create download directory if it doesn't exist
-    fs.mkdirSync(downloadDir, { recursive: true });
+    let downloadPath;
+    let extractDir;
+    
+    if (backupAction === 'download_custom') {
+      // Ask for download location
+      const { downloadDir } = await inquirer.prompt([
+        {
+          type: 'input',
+          name: 'downloadDir',
+          message: 'Enter download directory:',
+          default: process.cwd()
+        }
+      ]);
+      
+      // Create download directory if it doesn't exist
+      fs.mkdirSync(downloadDir, { recursive: true });
+      
+      // Set the download path
+      downloadPath = path.join(downloadDir, path.basename(backupToDownload));
+      
+      // Ask for extraction directory
+      const { shouldExtract } = await inquirer.prompt([
+        {
+          type: 'confirm',
+          name: 'shouldExtract',
+          message: 'Do you want to extract the backup after downloading?',
+          default: true
+        }
+      ]);
+      
+      if (shouldExtract) {
+        const { extractionDir } = await inquirer.prompt([
+          {
+            type: 'input',
+            name: 'extractionDir',
+            message: 'Enter extraction directory:',
+            default: path.join(downloadDir, 'valheim-backup')
+          }
+        ]);
+        
+        extractDir = extractionDir;
+      }
+    } else if (backupAction === 'restore_local_world') {
+      // Create world directory in the worlds folder
+      const worldsDir = path.join(process.cwd(), 'worlds');
+      const specificWorldDir = path.join(worldsDir, worldName);
+      
+      fs.mkdirSync(specificWorldDir, { recursive: true });
+      
+      // Set paths for download and extraction
+      downloadPath = path.join(os.tmpdir(), path.basename(backupToDownload));
+      extractDir = path.join(os.tmpdir(), 'valheim-extract-temp');
+      
+      // Clean up extraction directory if it exists
+      if (fs.existsSync(extractDir)) {
+        fs.rmSync(extractDir, { recursive: true, force: true });
+      }
+      
+      fs.mkdirSync(extractDir, { recursive: true });
+    }
+    
+    console.log(`Downloading ${path.basename(backupToDownload)}...`);
     
     // Download file
-    const downloadPath = path.join(downloadDir, backupToDownload);
     const fileStream = fs.createWriteStream(downloadPath);
     
     const getObjectCommand = new GetObjectCommand({
@@ -305,38 +564,78 @@ async function downloadBackups() {
       fileStream.on('finish', resolve);
     });
     
-    console.log(`Backup downloaded successfully to ${downloadPath}`);
+    console.log(`Backup downloaded successfully`);
     
-    // Ask if user wants to extract the backup
-    const { extractBackup } = await inquirer.prompt([
-      {
-        type: 'confirm',
-        name: 'extractBackup',
-        message: 'Do you want to extract the backup?',
-        default: true
-      }
-    ]);
-    
-    if (extractBackup) {
-      // Ask for extraction directory
-      const { extractDir } = await inquirer.prompt([
-        {
-          type: 'input',
-          name: 'extractDir',
-          message: 'Enter extraction directory:',
-          default: path.join(downloadDir, 'valheim-backup')
-        }
-      ]);
-      
-      // Create extraction directory if it doesn't exist
-      fs.mkdirSync(extractDir, { recursive: true });
-      
-      // Extract using tar
-      console.log(`Extracting backup to ${extractDir}...`);
+    // Extract if needed
+    if (extractDir) {
+      console.log(`Extracting backup...`);
       
       try {
         execSync(`tar -xzf "${downloadPath}" -C "${extractDir}"`, { stdio: 'inherit' });
         console.log('Backup extracted successfully');
+        
+        // If restoring to worlds folder, copy only world files to the world directory
+        if (backupAction === 'restore_local_world') {
+          const worldsDir = path.join(process.cwd(), 'worlds');
+          const specificWorldDir = path.join(worldsDir, worldName);
+          
+          console.log(`Finding world files for ${worldName}...`);
+          
+          // Look for world files in extracted backup
+          // Check in common locations where world files might be stored
+          const searchPaths = [
+            path.join(extractDir, 'config', 'worlds'),
+            path.join(extractDir, 'mnt', 'valheim-data', 'config', 'worlds'),
+            path.join(extractDir, 'worlds')
+          ];
+          
+          let foundFiles = false;
+          
+          for (const searchPath of searchPaths) {
+            if (fs.existsSync(searchPath)) {
+              const files = fs.readdirSync(searchPath);
+              const worldFiles = files.filter(file => {
+                const filename = path.basename(file, path.extname(file));
+                return (
+                  (file.endsWith('.db') || file.endsWith('.fwl')) && 
+                  filename.toLowerCase() === worldName.toLowerCase()
+                );
+              });
+              
+              if (worldFiles.length > 0) {
+                console.log(`Found ${worldFiles.length} world files in ${searchPath}`);
+                foundFiles = true;
+                
+                // Copy world files to the world directory
+                worldFiles.forEach(file => {
+                  const sourcePath = path.join(searchPath, file);
+                  const destPath = path.join(specificWorldDir, file);
+                  
+                  fs.copyFileSync(sourcePath, destPath);
+                  console.log(`Copied ${file} to ${specificWorldDir}`);
+                });
+                
+                break;
+              }
+            }
+          }
+          
+          if (!foundFiles) {
+            console.log(`No world files found for ${worldName} in the backup.`);
+            console.log(`You may need to extract the backup manually and look for the world files.`);
+          } else {
+            console.log(`Successfully restored world files for ${worldName} to ${specificWorldDir}`);
+          }
+          
+          // Clean up temporary files
+          if (fs.existsSync(downloadPath)) {
+            fs.unlinkSync(downloadPath);
+          }
+          
+          if (fs.existsSync(extractDir)) {
+            fs.rmSync(extractDir, { recursive: true, force: true });
+          }
+        }
       } catch (error) {
         console.error('Error extracting backup:', error.message);
       }
@@ -679,6 +978,34 @@ async function configureLocalTesting() {
       message: 'Local test server port:',
       default: config.localPort,
       when: (answers) => answers.useLocalTesting
+    },
+    {
+      type: 'confirm',
+      name: 'useDockerTesting',
+      message: 'Enable local Docker-based Valheim server for testing?',
+      default: config.useDockerTesting || false,
+      when: (answers) => answers.useLocalTesting
+    },
+    {
+      type: 'input',
+      name: 'worldNameDocker',
+      message: 'World name for Docker testing:',
+      default: config.worldNameDocker || 'TestWorld',
+      when: (answers) => answers.useLocalTesting && answers.useDockerTesting
+    },
+    {
+      type: 'password',
+      name: 'serverPasswordDocker',
+      message: 'Server password for Docker testing:',
+      default: config.serverPasswordDocker || 'valheim',
+      when: (answers) => answers.useLocalTesting && answers.useDockerTesting
+    },
+    {
+      type: 'confirm',
+      name: 'enableBepInExDocker',
+      message: 'Enable BepInEx for Docker testing?',
+      default: config.enableBepInExDocker !== undefined ? config.enableBepInExDocker : true,
+      when: (answers) => answers.useLocalTesting && answers.useDockerTesting
     }
   ]);
   
@@ -698,8 +1025,161 @@ async function configureLocalTesting() {
     ]);
     
     if (startNow.start) {
+      if (config.useDockerTesting) {
+        await startLocalDockerServer();
+      }
       startLocalTestServer();
     }
+  }
+}
+
+async function startLocalDockerServer() {
+  console.log('Starting local Docker-based Valheim server...');
+  
+  try {
+    // Check if Docker is installed
+    execSync('docker --version', { stdio: 'ignore' });
+  } catch (error) {
+    console.error('Docker is not installed or not in your PATH. Please install Docker to use this feature.');
+    return;
+  }
+  
+  try {
+    // Check if valheim-server container is already running
+    const output = execSync('docker ps -q -f name=valheim-server').toString().trim();
+    if (output) {
+      console.log('Valheim server container is already running');
+      const restart = await inquirer.prompt([
+        {
+          type: 'confirm',
+          name: 'restartContainer',
+          message: 'Restart the container?',
+          default: false
+        }
+      ]);
+      
+      if (restart.restartContainer) {
+        console.log('Stopping existing container...');
+        execSync('docker stop valheim-server', { stdio: 'inherit' });
+        execSync('docker rm valheim-server', { stdio: 'inherit' });
+      } else {
+        return;
+      }
+    }
+    
+    // Create needed directories if they don't exist
+    const homeDir = process.env.HOME || process.env.USERPROFILE;
+    const configDir = path.join(homeDir, '.huginbot', 'valheim', 'config');
+    const backupsDir = path.join(homeDir, '.huginbot', 'valheim', 'backups');
+    const modsDir = path.join(homeDir, '.huginbot', 'valheim', 'mods');
+    
+    console.log('Creating required directories...');
+    fs.mkdirSync(configDir, { recursive: true });
+    fs.mkdirSync(backupsDir, { recursive: true });
+    fs.mkdirSync(modsDir, { recursive: true });
+    
+    // Check for world files in ./worlds directory
+    const worldName = config.worldNameDocker || 'TestWorld';
+    const worldDir = path.join(process.cwd(), 'worlds', worldName);
+    
+    if (fs.existsSync(worldDir)) {
+      console.log(`Found world directory for ${worldName}, copying files...`);
+      
+      // Get world files (.db and .fwl files)
+      const worldFiles = fs.readdirSync(worldDir)
+        .filter(file => file.endsWith('.db') || file.endsWith('.fwl'));
+        
+      if (worldFiles.length > 0) {
+        // Create worlds directory in config
+        const configWorldsDir = path.join(configDir, 'worlds');
+        fs.mkdirSync(configWorldsDir, { recursive: true });
+        
+        // Copy world files
+        worldFiles.forEach(file => {
+          fs.copyFileSync(
+            path.join(worldDir, file),
+            path.join(configWorldsDir, file)
+          );
+          console.log(`Copied ${file} to local testing environment`);
+        });
+      }
+    }
+    
+    // Check for mods in ./mods directory
+    const projectModsDir = path.join(process.cwd(), 'mods');
+    if (fs.existsSync(projectModsDir)) {
+      const mods = fs.readdirSync(projectModsDir);
+      if (mods.length > 0) {
+        console.log('Found mods, copying to local testing environment...');
+        
+        // Copy all mods
+        mods.forEach(mod => {
+          const modSource = path.join(projectModsDir, mod);
+          const modDest = path.join(modsDir, mod);
+          
+          if (fs.statSync(modSource).isDirectory()) {
+            // Copy directory recursively
+            fs.mkdirSync(modDest, { recursive: true });
+            fs.cpSync(modSource, modDest, { recursive: true });
+          } else {
+            // Copy file
+            fs.copyFileSync(modSource, modDest);
+          }
+          console.log(`Copied mod ${mod} to local testing environment`);
+        });
+      }
+    }
+    
+    // Build the Docker run command
+    const serverArgs = ['-crossplay'];
+    if (config.enableBepInExDocker) {
+      serverArgs.push('-bepinex');
+    }
+    
+    const dockerCommand = `docker run -d --name valheim-server \\
+      -p 2456-2458:2456-2458/udp \\
+      -p 2456-2458:2456-2458/tcp \\
+      -p 8080:80 \\
+      -v "${configDir}:/config" \\
+      -v "${backupsDir}:/config/backups" \\
+      -v "${modsDir}:/bepinex/plugins" \\
+      -e SERVER_NAME="Local Test Server" \\
+      -e WORLD_NAME="${config.worldNameDocker || 'TestWorld'}" \\
+      -e SERVER_PASS="${config.serverPasswordDocker || 'valheim'}" \\
+      -e TZ="America/Los_Angeles" \\
+      -e BACKUPS_DIRECTORY="/config/backups" \\
+      -e BACKUPS_INTERVAL="3600" \\
+      -e BACKUPS_MAX_AGE="3" \\
+      -e BACKUPS_DIRECTORY_PERMISSIONS="755" \\
+      -e BACKUPS_FILE_PERMISSIONS="644" \\
+      -e CONFIG_DIRECTORY_PERMISSIONS="755" \\
+      -e WORLDS_DIRECTORY_PERMISSIONS="755" \\
+      -e WORLDS_FILE_PERMISSIONS="644" \\
+      -e SERVER_PUBLIC="false" \\
+      -e UPDATE_INTERVAL="900" \\
+      -e STEAMCMD_ARGS="validate" \\
+      -e BEPINEX="${config.enableBepInExDocker ? 'true' : 'false'}" \\
+      -e SERVER_ARGS="${serverArgs.join(' ')}" \\
+      --restart unless-stopped \\
+      lloesche/valheim-server`;
+    
+    console.log('Starting Valheim server container...');
+    execSync(dockerCommand, { stdio: 'inherit' });
+    
+    console.log(`
+Local Valheim server started successfully!
+- Connect to game at: 127.0.0.1:2456
+- Server name: Local Test Server
+- World name: ${config.worldNameDocker || 'TestWorld'}
+- Password: ${config.serverPasswordDocker || 'valheim'}
+- Admin panel at: http://localhost:8080
+`);
+    
+    // Update the mock state
+    mockEc2State = 'running';
+    
+  } catch (error) {
+    console.error('Error starting Docker container:', error.message);
   }
 }
 
@@ -710,22 +1190,31 @@ async function mainMenu() {
   displayIntro();
   
   while (true) {
+    const choices = [
+      'Deploy Infrastructure', 
+      'Configure Local Testing',
+      'Start Local Test Server',
+      'Show Server Status',
+      'Start Mock Server',
+      'Stop Mock Server',
+      'Download Backup',
+      'Manage Worlds',
+      'Undeploy All Infrastructure',
+    ];
+    
+    // Add Docker options if Docker testing is enabled
+    if (config.useDockerTesting) {
+      choices.splice(3, 0, 'Start Local Docker Valheim Server', 'Stop Local Docker Valheim Server');
+    }
+    
+    choices.push('Exit');
+    
     const answers = await inquirer.prompt([
       {
         type: 'list',
         name: 'action',
         message: 'What do you want to do?',
-        choices: [
-          'Deploy Infrastructure', 
-          'Configure Local Testing',
-          'Start Local Test Server',
-          'Show Server Status',
-          'Start Mock Server',
-          'Stop Mock Server',
-          'Download Backup',
-          'Manage Worlds',
-          'Exit'
-        ],
+        choices: choices,
       }
     ]);
     
@@ -739,6 +1228,20 @@ async function mainMenu() {
       case 'Start Local Test Server':
         startLocalTestServer();
         return; // Exit the menu loop since the server will be running
+      case 'Start Local Docker Valheim Server':
+        await startLocalDockerServer();
+        break;
+      case 'Stop Local Docker Valheim Server':
+        try {
+          console.log('Stopping Docker Valheim server...');
+          execSync('docker stop valheim-server', { stdio: 'inherit' });
+          execSync('docker rm valheim-server', { stdio: 'inherit' });
+          console.log('Docker Valheim server stopped successfully.');
+          mockEc2State = 'stopped';
+        } catch (error) {
+          console.error('Error stopping Docker container:', error.message);
+        }
+        break;
       case 'Show Server Status':
         await showInstanceStatus();
         break;
@@ -771,6 +1274,9 @@ async function mainMenu() {
         break;
       case 'Manage Worlds':
         await manageWorlds();
+        break;
+      case 'Undeploy All Infrastructure':
+        await undeployInfrastructure();
         break;
       case 'Exit':
         process.exit();
