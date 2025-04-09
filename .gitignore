@@ -11,3 +11,9 @@ cdk.out
 
 # Parcel default cache directory
 .parcel-cache
+
+# Valheim world files and mods
+/worlds/*
+!/worlds/.gitkeep
+/mods/*
+!/mods/.gitkeep
