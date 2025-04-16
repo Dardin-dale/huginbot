@@ -1,0 +1,7 @@
+Apr 15 20:18:07 supervisord: valheim-server 04/15/2025 20:18:07: Session "GjurdsIHOP" with join code 122842 and IP 18.236.178.46:2456 is active with 0 player(s)
+Apr 15 20:18:07 supervisord: valheim-server 04/15/2025 20:18:07: Console: [Info : Unity Log] 04/15/2025 20:18:07: Session "GjurdsIHOP" with join code 122842 and IP 18.236.178.46:2456 is active with 0 player(s)
+Apr 15 20:21:13 supervisord: valheim-server 04/15/2025 20:21:13: Player joined server "GjurdsIHOP" that has join code 122842, now 1 player(s)
+Apr 15 20:21:13 supervisord: valheim-server 04/15/2025 20:21:13: Console: [Info : Unity Log] 04/15/2025 20:21:13: Player joined server "GjurdsIHOP" that has join code 122842, now 1 player(s)
+Apr 15 20:25:56 supervisord: valheim-server 04/15/2025 20:25:56: Player connection lost server "GjurdsIHOP" that has join code 122842, now 0 player(s)
+Apr 15 20:25:56 supervisord: valheim-server 04/15/2025 20:25:56: Console: [Info : Unity Log] 04/15/2025 20:25:56: Player connection lost server "GjurdsIHOP" that has join code 122842, now 0 player(s)
+Apr 15 20:32:47 supervisord: valheim-updater
