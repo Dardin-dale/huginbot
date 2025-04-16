@@ -29,6 +29,7 @@ import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
 import { Alarm, ComparisonOperator, Metric, TreatMissingData } from "aws-cdk-lib/aws-cloudwatch";
 import { Construct } from "constructs";
 import * as path from "path";
+import { loadScript } from './script-loader';
 
 interface WorldConfig {
     /**
@@ -334,91 +335,13 @@ EOF`,
         // Create backup script
         userData.addCommands(
             `cat > /usr/local/bin/backup-valheim.sh << 'EOF'
-#!/bin/bash
-# Get active world from SSM Parameter Store if it exists
-ACTIVE_WORLD=""
-WORLD_NAME=""
-if aws ssm get-parameter --name "/huginbot/active-world" --region $(curl -s http://169.254.169.254/latest/meta-data/placement/region) 2>/dev/null; then
-  PARAM_VALUE=$(aws ssm get-parameter --name "/huginbot/active-world" --region $(curl -s http://169.254.169.254/latest/meta-data/placement/region) --query "Parameter.Value" --output text)
-  ACTIVE_WORLD=$(echo $PARAM_VALUE | jq -r '.name')
-  WORLD_NAME=$(echo $PARAM_VALUE | jq -r '.worldName')
-fi
-
-# Create the backup folder path
-BACKUP_PATH=""
-if [ -n "$ACTIVE_WORLD" ]; then
-  BACKUP_PATH="worlds/$ACTIVE_WORLD"
-  echo "Backing up world: $ACTIVE_WORLD ($WORLD_NAME)"
-else
-  BACKUP_PATH="worlds/default"
-  echo "Backing up default world"
-fi
-
-# Create the backup
-timestamp=$(date +%Y%m%d_%H%M%S)
-tar -czf /tmp/valheim_backup_$timestamp.tar.gz -C /mnt/valheim-data .
-aws s3 cp /tmp/valheim_backup_$timestamp.tar.gz s3://${this.backupBucket.bucketName}/$BACKUP_PATH/valheim_backup_$timestamp.tar.gz
-rm /tmp/valheim_backup_$timestamp.tar.gz
+${loadScript('valheim/backup-valheim.sh', { 'BACKUP_BUCKET_NAME': this.backupBucket.bucketName })}
 EOF`,
             "chmod +x /usr/local/bin/backup-valheim.sh",
 
             // Create world switching script
             `cat > /usr/local/bin/switch-valheim-world.sh << 'EOF'
-#!/bin/bash
-# This script switches the active Valheim world based on SSM Parameter Store value
-
-# Check if the server is running
-if docker ps | grep -q valheim-server; then
-  echo "Stopping Valheim server..."
-  docker stop valheim-server
-  docker rm valheim-server
-fi
-
-# Get active world from SSM Parameter Store
-if ! aws ssm get-parameter --name "/huginbot/active-world" --region $(curl -s http://169.254.169.254/latest/meta-data/placement/region) 2>/dev/null; then
-  echo "No active world parameter found, using default configuration"
-  exit 0
-fi
-
-PARAM_VALUE=$(aws ssm get-parameter --name "/huginbot/active-world" --region $(curl -s http://169.254.169.254/latest/meta-data/placement/region) --query "Parameter.Value" --output text)
-WORLD_NAME=$(echo $PARAM_VALUE | jq -r '.worldName')
-SERVER_NAME=$(echo $PARAM_VALUE | jq -r '.name')
-SERVER_PASSWORD=$(echo $PARAM_VALUE | jq -r '.serverPassword')
-
-echo "Switching to world: $SERVER_NAME ($WORLD_NAME)"
-
-# Back up the current world
-/usr/local/bin/backup-valheim.sh
-
-# Start the server with the new configuration
-docker run -d --name valheim-server \\
-  -p 2456-2458:2456-2458/udp \\
-  -p 2456-2458:2456-2458/tcp \\
-  -p 80:80 \\
-  -v /mnt/valheim-data/config:/config \\
-  -v /mnt/valheim-data/backups:/config/backups \\
-  -v /mnt/valheim-data/mods:/bepinex/plugins \\
-  -e SERVER_NAME="$SERVER_NAME" \\
-  -e WORLD_NAME="$WORLD_NAME" \\
-  -e SERVER_PASS="$SERVER_PASSWORD" \\
-  -e TZ="America/Los_Angeles" \\
-  -e BACKUPS_DIRECTORY="/config/backups" \\
-  -e BACKUPS_INTERVAL="3600" \\
-  -e BACKUPS_MAX_AGE="3" \\
-  -e BACKUPS_DIRECTORY_PERMISSIONS="755" \\
-  -e BACKUPS_FILE_PERMISSIONS="644" \\
-  -e CONFIG_DIRECTORY_PERMISSIONS="755" \\
-  -e WORLDS_DIRECTORY_PERMISSIONS="755" \\
-  -e WORLDS_FILE_PERMISSIONS="644" \\
-  -e SERVER_PUBLIC="true" \\
-  -e UPDATE_INTERVAL="900" \\
-  -e STEAMCMD_ARGS="validate" \\
-  -e BEPINEX="true" \\
-  -e SERVER_ARGS="-crossplay -bepinex" \\
-  --restart unless-stopped \\
-  lloesche/valheim-server
-
-echo "World switched successfully"
+${loadScript('valheim/switch-valheim-world.sh')}
 EOF`,
             "chmod +x /usr/local/bin/switch-valheim-world.sh",
 
@@ -468,51 +391,7 @@ EOF`,
         // Create PlayFab join code monitoring script
         userData.addCommands(
             `cat > /usr/local/bin/monitor-playfab.sh << 'EOF'
-#!/bin/bash
-# Monitor Docker logs for PlayFab join code and store in SSM Parameter Store
-
-REGION=$(curl -s http://169.254.169.254/latest/meta-data/placement/region)
-PARAM_NAME="/huginbot/playfab-join-code"
-LAST_JOIN_CODE=""
-
-while true; do
-  # Look for PlayFab join code in logs
-  JOIN_CODE=$(docker logs --tail 300 valheim-server 2>&1 | grep -i "PlayFab game join code" | tail -1 | grep -oE '[A-Z0-9]{6}')
-  
-  if [ -n "$JOIN_CODE" ]; then
-    # Only process if this is a new join code or first detection
-    if [ "$JOIN_CODE" != "$LAST_JOIN_CODE" ]; then
-      echo "Found new PlayFab join code: $JOIN_CODE"
-      
-      # Store in SSM Parameter Store
-      aws ssm put-parameter --name "$PARAM_NAME" --type "String" --value "$JOIN_CODE" --overwrite --region "$REGION"
-      
-      # Also store timestamp of when we found it
-      TIMESTAMP=$(date +%s)
-      aws ssm put-parameter --name "$PARAM_NAME-timestamp" --type "String" --value "$TIMESTAMP" --overwrite --region "$REGION"
-      
-      # Send event to EventBridge
-      aws events put-events --entries '[{
-        "Source": "valheim.server",
-        "DetailType": "PlayFab.JoinCodeDetected",
-        "Detail": "{\"joinCode\":\"'"$JOIN_CODE"'\", \"timestamp\":'"$TIMESTAMP"'}",
-        "EventBusName": "default"
-      }]' --region "$REGION"
-      
-      echo "Sent event notification for join code"
-      
-      # Update last seen code
-      LAST_JOIN_CODE="$JOIN_CODE"
-    else
-      echo "PlayFab join code unchanged: $JOIN_CODE"
-    fi
-  else
-    echo "No PlayFab join code found"
-  fi
-  
-  # Check every 60 seconds
-  sleep 60
-done
+${loadScript('valheim/monitor-playfab.sh')}
 EOF`,
             "chmod +x /usr/local/bin/monitor-playfab.sh",
 
@@ -534,98 +413,7 @@ EOF`,
 
             // Create player count monitoring script
             `cat > /usr/local/bin/monitor-players.sh << 'EOF'
-#!/bin/bash
-# Monitor player count and auto-shutdown server if inactive for too long
-REGION=$(curl -s http://169.254.169.254/latest/meta-data/placement/region)
-INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
-PARAM_NAME="/huginbot/player-count"
-INACTIVE_THRESHOLD=600  # 10 minutes in seconds
-ACTIVITY_FILE="/tmp/valheim_last_activity"
-NAMESPACE="ValheimServer"
-# Initialize last activity timestamp if not exists
-if [ ! -f "$ACTIVITY_FILE" ]; then
-  date +%s > "$ACTIVITY_FILE"
-fi
-while true; do
-  # Look for connected players in logs
-  CURRENT_TIME=$(date +%s)
-  
-  # Check for recent player activity in logs (last 5 minutes)
-  RECENT_PLAYERS=$(docker logs --since 5m valheim-server 2>&1 | grep -i "Player joined server" | wc -l)
-  RECENT_DISCONNECTS=$(docker logs --since 5m valheim-server 2>&1 | grep -i "Player connection lost server" | wc -l)
-  # Extract the most recent player count directly from logs
-  LATEST_PLAYER_COUNT=$(docker logs --tail 100 valheim-server 2>&1 | grep -E "now [0-9]+ player\(s\)" | tail -1 | grep -oE "now ([0-9]+)" | grep -oE "[0-9]+")
-  # If no player count found in logs, fall back to manual counting
-  if [ -z "$LATEST_PLAYER_COUNT" ]; then
-    # Count all connections and disconnections in log history
-    CONNECTIONS=$(docker logs --tail 500 valheim-server 2>&1 | grep -i "Player joined server" | wc -l)
-    DISCONNECTIONS=$(docker logs --tail 500 valheim-server 2>&1 | grep -i "Player connection lost server" | wc -l)
-    CURRENT_PLAYERS=$((CONNECTIONS - DISCONNECTIONS))
-  
-    # Ensure we don't have negative players (could happen if we missed some log entries)
-    if [ "$CURRENT_PLAYERS" -lt 0 ]; then
-      CURRENT_PLAYERS=0
-    fi
-  else
-    # Use the player count directly from logs
-    CURRENT_PLAYERS=$LATEST_PLAYER_COUNT
-  fi
-  
-  echo "Current player count: $CURRENT_PLAYERS"
-  
-  # Store player count in Parameter Store
-  aws ssm put-parameter --name "$PARAM_NAME" --type "String" --value "$CURRENT_PLAYERS" --overwrite --region "$REGION"
-  
-  # Send metric to CloudWatch
-  aws cloudwatch put-metric-data \
-    --namespace "$NAMESPACE" \
-    --metric-name "PlayerCount" \
-    --value "$CURRENT_PLAYERS" \
-    --unit "Count" \
-    --region "$REGION"
-  
-  # Check if there's player activity
-  if [ "$CURRENT_PLAYERS" -gt 0 ] || [ "$RECENT_PLAYERS" -gt 0 ]; then
-    echo "Active players detected, updating last activity timestamp"
-    echo "$CURRENT_TIME" > "$ACTIVITY_FILE"
-  else
-    # Calculate time since last activity
-    LAST_ACTIVITY=$(cat "$ACTIVITY_FILE")
-    INACTIVE_TIME=$((CURRENT_TIME - LAST_ACTIVITY))
-    echo "No active players. Server idle for $INACTIVE_TIME seconds"
-    
-    # Send idle time metric to CloudWatch
-    aws cloudwatch put-metric-data \
-      --namespace "$NAMESPACE" \
-      --metric-name "IdleTimeSeconds" \
-      --value "$INACTIVE_TIME" \
-      --unit "Seconds" \
-      --region "$REGION"
-    
-    # Check if we should shut down
-    if [ "$INACTIVE_TIME" -gt "$INACTIVE_THRESHOLD" ]; then
-      echo "Server has been inactive for more than $INACTIVE_THRESHOLD seconds. Shutting down..."
-      
-      # Take a backup before shutting down
-      /usr/local/bin/backup-valheim.sh
-      
-      # Send notification to EventBridge
-      aws events put-events --entries '[{
-        "Source": "valheim.server",
-        "DetailType": "Server.AutoShutdown",
-        "Detail": "{\"reason\":\"inactivity\", \"idleTime\":'"$INACTIVE_TIME"', \"timestamp\":'"$CURRENT_TIME"'}",
-        "EventBusName": "default"
-      }]' --region "$REGION"
-      
-      # Stop the instance
-      aws ec2 stop-instances --instance-ids "$INSTANCE_ID" --region "$REGION"
-      break
-    fi
-  fi
-  
-  # Check every 2 minutes
-  sleep 120
-done
+${loadScript('valheim/monitor-players.sh')}
 EOF`,
             "chmod +x /usr/local/bin/monitor-players.sh",
 
