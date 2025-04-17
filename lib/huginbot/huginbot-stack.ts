@@ -40,7 +40,10 @@ interface HuginbotStackProps extends StackProps {
      * This will be passed to the Lambda functions.
      */
     valheimInstanceId: string;
-
+    /**
+     * VPC for the project/valheim server
+     */
+    valheimVpc: ec2.IVpc;
     /**
      * Discord authentication token for verifying requests.
      * This is NOT the Discord bot token, but a simple shared secret.
@@ -52,6 +55,7 @@ interface HuginbotStackProps extends StackProps {
      * This is used to send messages directly to a channel.
      */
     discordWebhookUrl?: string;
+
 }
 
 export class HuginbotStack extends Stack {
@@ -272,7 +276,10 @@ export class HuginbotStack extends Stack {
                 ec2.InstanceSize.NANO
             ),
             machineImage: ec2.MachineImage.latestAmazonLinux2023ARM(),
-            vpc: vpc, // Use existing VPC
+            vpc: props.valheimVpc, // Use existing VPC
+            vpcSubnets: {
+                subnetType: ec2.SubnetType.PUBLIC,
+            },
             userData: ec2.UserData.custom(fs.readFileSync('scripts/discord-setup.sh', 'utf8')),
             role: discordBotRole,
         });

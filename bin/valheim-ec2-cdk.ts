@@ -20,5 +20,6 @@ const valheimStack = new ValheimServerAwsCdkStack(app, 'ValheimStack', {
 });
 
 new HuginbotStack(app, 'HuginbotStack', {
-  valheimInstanceId: valheimStack.ec2Instance.instanceId
+  valheimInstanceId: valheimStack.ec2Instance.instanceId,
+  valheimVpc: valheimStack.vpc
 });
