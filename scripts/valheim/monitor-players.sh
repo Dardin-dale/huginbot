@@ -77,7 +77,7 @@ while true; do
       aws events put-events --entries '[{
         "Source": "valheim.server",
         "DetailType": "Server.AutoShutdown",
-        "Detail": "{\"reason\":\"inactivity\", \"idleTime\":'"$INACTIVE_TIME"', \"timestamp\":'"$CURRENT_TIME"'}",
+        "Detail": "{\"reason\":\"inactivity\", \"idleTime\":'"$INACTIVE_TIME"', \"timestamp\":'"$CURRENT_TIME"', \"guildId\":\"'"$GUILD_ID"'\"}",
         "EventBusName": "default"
       }]' --region "$REGION"
       

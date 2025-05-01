@@ -2,19 +2,29 @@ const { SlashCommandBuilder } = require('@discordjs/builders');
 
 module.exports = {
     data: new SlashCommandBuilder()
-        .setName('stop')
-        .setDescription('Stop the Valheim server'),
+        .setName('backup')
+        .setDescription('Manage server backups')
+        .addSubcommand(subcommand =>
+            subcommand
+                .setName('list')
+                .setDescription('List available backups'))
+        .addSubcommand(subcommand =>
+            subcommand
+                .setName('create')
+                .setDescription('Create a new backup')),
 
     async execute(interaction, lambda) {
         await interaction.deferReply();
+        
+        const subcommand = interaction.options.getSubcommand();
 
         try {
-            // Invoke Lambda function
             const response = await lambda.invoke({
-                FunctionName: process.env.START_STOP_LAMBDA_NAME,
+                FunctionName: process.env.COMMANDS_LAMBDA_NAME,
                 Payload: JSON.stringify({
                     body: JSON.stringify({
-                        action: 'stop',
+                        action: 'backup',
+                        backup_action: subcommand,
                         guild_id: interaction.guildId
                     }),
                     headers: {
@@ -28,8 +38,8 @@ module.exports = {
 
             await interaction.editReply(body.message);
         } catch (error) {
-            console.error('Error stopping server:', error);
-            await interaction.editReply('Failed to stop the server. Please try again later.');
+            console.error('Error executing backup command:', error);
+            await interaction.editReply('Backup operation failed. Please try again later.');
         }
     }
 };

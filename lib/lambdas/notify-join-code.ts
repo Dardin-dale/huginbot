@@ -69,6 +69,22 @@ export async function handler(
         }
       ]
     };
+
+
+    if (event.detail.guildId) {
+      try {
+        const paramResult = await ssmClient.send(new GetParameterCommand({
+          Name: `/huginbot/discord-webhook/${event.detail.guildId}`,
+          WithDecryption: true
+        }));
+        
+        if (paramResult.Parameter?.Value) {
+          webhookUrl = paramResult.Parameter.Value;
+        }
+      } catch (err) {
+        console.log('No guild-specific webhook found, using default');
+      }
+    }
     
     // Send notification to Discord via webhook
     if (DISCORD_WEBHOOK_URL) {

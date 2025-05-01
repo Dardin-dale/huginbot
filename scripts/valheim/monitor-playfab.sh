@@ -25,7 +25,7 @@ while true; do
       aws events put-events --entries '[{
         "Source": "valheim.server",
         "DetailType": "PlayFab.JoinCodeDetected",
-        "Detail": "{\"joinCode\":\"'"$JOIN_CODE"'\", \"timestamp\":'"$TIMESTAMP"'}",
+        "Detail": "{\"joinCode\":\"'"$JOIN_CODE"'\", \"timestamp\":'"$TIMESTAMP"', \"guildId\":\"'"$GUILD_ID"'\"}",
         "EventBusName": "default"
       }]' --region "$REGION"
       

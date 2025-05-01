@@ -2,8 +2,8 @@ const { SlashCommandBuilder } = require('@discordjs/builders');
 
 module.exports = {
     data: new SlashCommandBuilder()
-        .setName('status')
-        .setDescription('Check the Valheim server status'),
+        .setName('list-worlds')
+        .setDescription('list worlds available to explore.'),
 
     async execute(interaction, lambda) {
         await interaction.deferReply();
@@ -13,6 +13,10 @@ module.exports = {
             const response = await lambda.invoke({
                 FunctionName: process.env.COMMANDS_LAMBDA_NAME,
                 Payload: JSON.stringify({
+                    body: JSON.stringify({
+                        action: 'list-worlds',
+                        guild_id: interaction.guildId
+                    }),
                     headers: {
                         'x-discord-auth': process.env.DISCORD_AUTH_TOKEN
                     }
@@ -24,8 +28,8 @@ module.exports = {
 
             await interaction.editReply(body.message);
         } catch (error) {
-            console.error('Error checking server status:', error);
-            await interaction.editReply('Failed to check the server status. Please try again later.');
+            console.error('Error getting wisdom from Hugin:', error);
+            await interaction.editReply('Hugin seems distracted. Please try again later.');
         }
     }
 };
