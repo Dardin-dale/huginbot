@@ -4,7 +4,7 @@ HuginBot is an AWS CDK project that provisions and manages a Valheim game server
 
 ## Features
 
-- **EC2-based Valheim Server**: Cost-effective hosting with on-demand scaling
+- **EC2-based Valheim Server**: Cost-effective hosting
 - **Discord Integration**: Control your server directly from Discord
 - **Multiple World Support**: Run different worlds for different Discord servers
 - **Automated Backups**: Scheduled backups to S3 with configurable retention
@@ -106,20 +106,6 @@ HuginBot is an AWS CDK project that provisions and manages a Valheim game server
    - Send Messages
    - Read Message History
    - Use Slash Commands
-
-9. After deploying your stack with `npm run deploy:all`, you'll receive the API Gateway endpoint in the terminal output. Copy this URL.
-
-10. Go back to the Discord Developer Portal and navigate to your application:
-    - Go to "Interactions Endpoint URL" and paste your API Gateway URL followed by `/valheim/control`
-    - Example: `https://abcdefghij.execute-api.us-west-2.amazonaws.com/prod/valheim/control`
-    - Click "Save Changes" - Discord will validate your endpoint
-    
-11. Register slash commands for your bot:
-    - Go to the "Bot" section in the Discord Developer Portal
-    - Enable "Message Content Intent" if it's not already enabled
-    - Save changes
-    - Use a tool like [Discord Slash Commands Deployer](https://discord.com/developers/docs/interactions/application-commands) to register your commands or create a simple script
-    - Basic commands to register: `/valheim start`, `/valheim stop`, `/valheim status`, `/valheim worlds`
 
 ## Deployment
 

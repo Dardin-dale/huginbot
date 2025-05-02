@@ -2,7 +2,7 @@ const { SlashCommandBuilder } = require('@discordjs/builders');
 
 module.exports = {
     data: new SlashCommandBuilder()
-        .setName('list-worlds')
+        .setName('worlds')
         .setDescription('list worlds available to explore.'),
 
     async execute(interaction, lambda) {
