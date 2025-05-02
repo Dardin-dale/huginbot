@@ -27,6 +27,7 @@ import { LambdaFunction } from "aws-cdk-lib/aws-events-targets";
 import { Runtime } from "aws-cdk-lib/aws-lambda";
 import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
 import { Alarm, ComparisonOperator, Metric, TreatMissingData } from "aws-cdk-lib/aws-cloudwatch";
+import { StringParameter } from "aws-cdk-lib/aws-ssm";
 import { Construct } from "constructs";
 import * as path from "path";
 import { loadScript } from './script-loader';
@@ -51,6 +52,12 @@ interface WorldConfig {
      * Server password for this world
      */
     serverPassword: string;
+    
+    /**
+     * Discord webhook URL for notifications
+     * This can be fetched from SSM parameter store
+     */
+    discordWebhook?: string;
 }
 
 interface ValheimServerAwsCdkStackProps extends StackProps {
@@ -209,6 +216,17 @@ export class ValheimServerAwsCdkStack extends Stack {
                 ],
             })
         );
+        
+        // Add policy for SSM Parameter Store access (for Discord webhooks)
+        instanceRole.addToPolicy(
+            new PolicyStatement({
+                effect: Effect.ALLOW,
+                actions: ["ssm:GetParameter", "ssm:GetParameters"],
+                resources: [
+                    `arn:aws:ssm:${this.region}:${this.account}:parameter/huginbot/discord-webhook/*`
+                ],
+            })
+        );
 
         // CloudWatch metrics don't support resource-level permissions for PutMetricData
         instanceRole.addToPolicy(
@@ -332,10 +350,53 @@ EOF`,
             "/usr/local/bin/setup-valheim-mods.sh"
         );
 
-        // Create backup script
+        // Create backup script with Discord webhook notification
         userData.addCommands(
             `cat > /usr/local/bin/backup-valheim.sh << 'EOF'
-${loadScript('valheim/backup-valheim.sh', { 'BACKUP_BUCKET_NAME': this.backupBucket.bucketName })}
+#!/bin/bash
+# Get active world from SSM Parameter Store if it exists
+ACTIVE_WORLD=""
+WORLD_NAME=""
+if aws ssm get-parameter --name "/huginbot/active-world" --region $(curl -s http://169.254.169.254/latest/meta-data/placement/region) 2>/dev/null; then
+  PARAM_VALUE=$(aws ssm get-parameter --name "/huginbot/active-world" --region $(curl -s http://169.254.169.254/latest/meta-data/placement/region) --query "Parameter.Value" --output text)
+  ACTIVE_WORLD=$(echo $PARAM_VALUE | jq -r '.name')
+  WORLD_NAME=$(echo $PARAM_VALUE | jq -r '.worldName')
+fi
+
+# Create the backup folder path
+BACKUP_PATH=""
+if [ -n "$ACTIVE_WORLD" ]; then
+  BACKUP_PATH="worlds/$ACTIVE_WORLD"
+  echo "Backing up world: $ACTIVE_WORLD ($WORLD_NAME)"
+else
+  BACKUP_PATH="worlds/default"
+  echo "Backing up default world"
+fi
+
+# Get the Discord webhook URL from environment variable
+DISCORD_WEBHOOK=$(env | grep DISCORD_WEBHOOK | cut -d= -f2- | tr -d '"')
+
+# Send backup started notification if webhook exists
+if [ -n "$DISCORD_WEBHOOK" ]; then
+  curl -sfSL -X POST -H "Content-Type: application/json" -d "{\"username\":\"HuginBot\",\"content\":\"Starting backup of world: $WORLD_NAME\"}" "$DISCORD_WEBHOOK"
+fi
+
+# Create the backup
+timestamp=$(date +%Y%m%d_%H%M%S)
+tar -czf /tmp/valheim_backup_$timestamp.tar.gz -C /mnt/valheim-data .
+aws s3 cp /tmp/valheim_backup_$timestamp.tar.gz s3://${this.backupBucket.bucketName}/$BACKUP_PATH/valheim_backup_$timestamp.tar.gz
+backup_status=$?
+
+# Send backup completion notification
+if [ -n "$DISCORD_WEBHOOK" ]; then
+  if [ $backup_status -eq 0 ]; then
+    curl -sfSL -X POST -H "Content-Type: application/json" -d "{\"username\":\"HuginBot\",\"content\":\"✅ Backup completed successfully for world: $WORLD_NAME\"}" "$DISCORD_WEBHOOK"
+  else
+    curl -sfSL -X POST -H "Content-Type: application/json" -d "{\"username\":\"HuginBot\",\"content\":\"❌ Backup failed for world: $WORLD_NAME\"}" "$DISCORD_WEBHOOK"
+  fi
+fi
+
+rm /tmp/valheim_backup_$timestamp.tar.gz
 EOF`,
             "chmod +x /usr/local/bin/backup-valheim.sh",
 
@@ -372,6 +433,27 @@ EOF`,
             `STEAMCMD_ARGS="validate"`,
             `BEPINEX="${enableBepInEx ? "true" : "false"}"`,
         ];
+        
+        // Add Discord webhook and lifecycle hooks
+        if (props?.worldConfigurations) {
+            // Use the first world config's Discord server ID for getting the webhook
+            const discordServerId = props.worldConfigurations[0].discordServerId;
+            
+            // Add webhook environment variables with error handling
+            dockerEnvVars.push('DISCORD_WEBHOOK="$(aws ssm get-parameter --name /huginbot/discord-webhook/' + discordServerId + ' --with-decryption --query Parameter.Value --output text 2>/dev/null || echo "")"');
+            
+            // Add error detection for missing webhook
+            dockerEnvVars.push('[ -z "$DISCORD_WEBHOOK" ] && echo "WARNING: Discord webhook URL not found for server ' + discordServerId + '. Notifications will not be sent." || echo "Discord webhook configured successfully for ' + discordServerId + '"');
+            
+            // Add server lifecycle hooks
+            dockerEnvVars.push('PRE_BOOTSTRAP_HOOK="curl -sfSL -X POST -H \\"Content-Type: application/json\\" -d \'{\\"username\\":\\"HuginBot\\",\\"content\\":\\"Server is starting...\\"}\' \\"$DISCORD_WEBHOOK\\""');
+            dockerEnvVars.push('POST_SERVER_LISTENING_HOOK="curl -sfSL -X POST -H \\"Content-Type: application/json\\" -d \'{\\"username\\":\\"HuginBot\\",\\"content\\":\\"Server is online and ready to play!\\"}\' \\"$DISCORD_WEBHOOK\\""');
+            dockerEnvVars.push('PRE_SERVER_SHUTDOWN_HOOK="curl -sfSL -X POST -H \\"Content-Type: application/json\\" -d \'{\\"username\\":\\"HuginBot\\",\\"content\\":\\"Server is shutting down. Save your game!\\"}\' \\"$DISCORD_WEBHOOK\\""');
+            
+            // Add log filtering for join code only - we don't need to notify for player joins/leaves
+            dockerEnvVars.push('VALHEIM_LOG_FILTER_CONTAINS_JoinCode="Session .* with join code [0-9]+ and IP"');
+            dockerEnvVars.push('ON_VALHEIM_LOG_FILTER_CONTAINS_JoinCode="{ read l; server_name=\\$(echo \\"$l\\" | grep -o \\"Session \\\\\\"\\".*\\\\\\"\\" | cut -d\\\\\\"\\" -f2); join_code=\\$(echo \\"$l\\" | grep -o \\"join code [0-9]*\\" | cut -d\\\" \\\" -f3); msg=\\"🎮 Server \\\\\\"$server_name\\\\\\" is ready! Join code: $join_code\\"; curl -sfSL -X POST -H \\"Content-Type: application/json\\" -d \\"{\\\\\\"username\\\\\\":\\\\\\"HuginBot\\\\\\",\\\\\\"content\\\\\\":\\\\\\"$msg\\\\\\"}\\" \\"$DISCORD_WEBHOOK\\"; }"');
+        }
 
         // Add admin IDs if provided
         if (props?.adminIds) {
@@ -561,5 +643,22 @@ EOF`,
             : this.node.tryGetContext("keep_resources") === true
                 ? undefined // Retain if explicitly requested
                 : undefined; // Default behavior (DESTROY would be safer for testing)
+    }
+    
+    /**
+     * Create an SSM Parameter for storing Discord webhook URL
+     * This parameter can be referenced by both the EC2 instance and Lambda functions
+     * 
+     * @param discordServerId The Discord server/guild ID associated with this webhook
+     * @param webhookUrl The Discord webhook URL
+     * @returns The created SSM Parameter
+     */
+    private createDiscordWebhookParameter(discordServerId: string, webhookUrl: string): StringParameter {
+        return new StringParameter(this, `DiscordWebhookParam-${discordServerId}`, {
+            parameterName: `/huginbot/discord-webhook/${discordServerId}`,
+            stringValue: webhookUrl,
+            description: "Discord webhook URL for HuginBot notifications",
+            type: StringParameter.Type.SECURE_STRING // Store as a secure string since it contains sensitive URL
+        });
     }
 }

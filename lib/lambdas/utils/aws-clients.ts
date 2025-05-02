@@ -23,7 +23,8 @@ export const DISCORD_AUTH_TOKEN = process.env.DISCORD_AUTH_TOKEN || '';
 export const SSM_PARAMS = {
   PLAYFAB_JOIN_CODE: '/huginbot/playfab-join-code',
   PLAYFAB_JOIN_CODE_TIMESTAMP: '/huginbot/playfab-join-code-timestamp',
-  ACTIVE_WORLD: '/huginbot/active-world'
+  ACTIVE_WORLD: '/huginbot/active-world',
+  DISCORD_WEBHOOK: '/huginbot/discord-webhook' // Base path for Discord webhook parameters
 };
 
 /**

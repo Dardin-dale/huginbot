@@ -1,5 +1,5 @@
+import * as cdk from "aws-cdk-lib";
 import {
-    CfnOutput,
     Duration,
     Stack,
     StackProps
@@ -183,23 +183,10 @@ export class HuginbotStack extends Stack {
         commandsFunction.addToRolePolicy(ssmCommandPolicy);
         commandsFunction.addToRolePolicy(s3BackupPolicy);
 
-        // Create the join code notification Lambda
-        const notifyJoinCodeFunction = new NodejsFunction(this, "NotifyJoinCodeFunction", {
-            ...lambdaDefaultProps,
-            entry: "lib/lambdas/notify-join-code.ts",
-            handler: "handler",
-            timeout: Duration.seconds(30), // Give more time for Discord API
-        });
-
-        // Create the auto-shutdown notification Lambda
-        const notifyShutdownFunction = new NodejsFunction(this, "NotifyShutdownFunction", {
-            ...lambdaDefaultProps,
-            entry: "lib/lambdas/notify-shutdown.ts",
-            handler: "handler",
-            timeout: Duration.seconds(30), // Give more time for Discord API
-        });
-
-        // Grant SSM Parameter Store access to the notification Lambdas - scoped to specific parameters
+        // Note: Notification Lambda functions have been removed 
+        // as the Docker container now directly sends notifications via webhook
+        
+        // Grant SSM Parameter Store access to Lambda functions
         const ssmParameterPolicy = new PolicyStatement({
             actions: [
                 "ssm:GetParameter",
@@ -208,29 +195,8 @@ export class HuginbotStack extends Stack {
                 `arn:aws:ssm:${this.region}:${this.account}:parameter/huginbot/*`
             ],
         });
-
-        notifyJoinCodeFunction.addToRolePolicy(ssmParameterPolicy);
-        notifyShutdownFunction.addToRolePolicy(ssmParameterPolicy);
-
-        // Create EventBridge rule to trigger the notification Lambda when join code is detected
-        const joinCodeEventRule = new Rule(this, "JoinCodeEventRule", {
-            eventPattern: {
-                source: ["valheim.server"],
-                detailType: ["PlayFab.JoinCodeDetected"],
-            },
-        });
-
-        joinCodeEventRule.addTarget(new LambdaFunction(notifyJoinCodeFunction));
-
-        // Create EventBridge rule for auto-shutdown notifications
-        const shutdownEventRule = new Rule(this, "ShutdownEventRule", {
-            eventPattern: {
-                source: ["valheim.server"],
-                detailType: ["Server.AutoShutdown"],
-            },
-        });
-
-        shutdownEventRule.addTarget(new LambdaFunction(notifyShutdownFunction));
+        
+        commandsFunction.addToRolePolicy(ssmParameterPolicy);
 
         // Create API Gateway
         const api = new RestApi(this, "HuginbotApi", {
@@ -248,65 +214,27 @@ export class HuginbotStack extends Stack {
         this.apiUrl = api.url;
 
         // Outputs
-        new CfnOutput(this, "ApiEndpoint", {
+        new cdk.CfnOutput(this, "ApiEndpoint", {
             value: api.url,
             description: "API Endpoint for Discord bot integration",
             exportName: `HuginbotApiEndpoint${parameterSuffix}`,
         });
 
-        new CfnOutput(this, "AuthTokenOutput", {
+        new cdk.CfnOutput(this, "AuthTokenOutput", {
             value: discordAuthToken,
             description: "Auth token for Discord integration",
             exportName: `HuginbotDiscordAuthToken${parameterSuffix}`,
         });
 
-        const userData = ec2.UserData.forLinux();
-        userData.addCommands(fs.readFileSync('scripts/discord/discord-setup.sh', 'utf8'));
-
-        // Add environment variables to the user data script
-        userData.addEnvironment('DISCORD_APP_ID', process.env.DISCORD_APP_ID || '');
-        userData.addEnvironment('DISCORD_BOT_PUBLIC_KEY', process.env.DISCORD_BOT_PUBLIC_KEY || '');
-        userData.addEnvironment('DISCORD_BOT_SECRET_TOKEN', process.env.DISCORD_BOT_SECRET_TOKEN || '');
-        userData.addEnvironment('DISCORD_AUTH_TOKEN', process.env.DISCORD_AUTH_TOKEN || '');
-        userData.addEnvironment('COMMANDS_LAMBDA_NAME', commandsFunction.functionName);
-
-        const botInstance = new ec2.Instance(this, 'DiscordBotInstance', {
-            instanceType: ec2.InstanceType.of(
-                ec2.InstanceClass.T4G,
-                ec2.InstanceSize.NANO
-            ),
-            machineImage: ec2.MachineImage.latestAmazonLinux2023ARM(),
-            vpc: props.valheimVpc, // Use existing VPC
-            vpcSubnets: {
-                subnetType: ec2.SubnetType.PUBLIC,
-            },
-            userData: userData,
-            role: discordBotRole,
-        });
-
-        // Create IAM role for Discord bot
-        const discordBotRole = new iam.Role(this, 'DiscordBotRole', {
-            assumedBy: new iam.ServicePrincipal('ec2.amazonaws.com'),
-            managedPolicies: [
-                iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonSSMManagedInstanceCore'),
-            ],
-        });
-
-        // Add Lambda invocation permissions
-        discordBotRole.addToPolicy(
-            new iam.PolicyStatement({
-                actions: ['lambda:InvokeFunction'],
-                resources: [
-                    commandsFunction.functionArn,
-                ],
-            })
-        );
-
-        // Export the instance ID
-        new cdk.CfnOutput(this, 'DiscordBotInstanceId', {
-            value: botInstance.instanceId,
-            description: 'ID of the Discord bot EC2 instance',
-        });
+        // Note: Discord bot EC2 instance has been removed
+        // We now use the Docker container's built-in webhook functionality
+        // instead of running a separate bot instance
+        
+        // For future reference, these environment variables might be needed:
+        // DISCORD_APP_ID
+        // DISCORD_BOT_PUBLIC_KEY
+        // DISCORD_BOT_SECRET_TOKEN
+        // DISCORD_AUTH_TOKEN
 
     }
 

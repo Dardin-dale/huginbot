@@ -226,16 +226,22 @@ Players can use the following commands in Discord:
 
 ## Architecture
 
-HuginBot uses a serverless architecture with:
+HuginBot uses a simplified architecture with built-in Docker container features:
 
 - **CloudFormation/CDK**: Infrastructure as code
 - **API Gateway**: HTTP endpoints for Discord interactions
 - **Lambda Functions**: Server control and processing
-- **EC2**: Game server hosting (more cost-effective than Fargate)
+- **EC2**: Game server hosting with Docker container
 - **S3**: World backups and storage
-- **SSM Parameter Store**: Configuration storage
+- **SSM Parameter Store**: Configuration and webhook storage
 - **CloudWatch**: Monitoring and logs
-- **EventBridge**: Event-driven communication between components
+
+### Key Architectural Features
+
+- **Direct Container Webhooks**: The Valheim server container directly sends Discord notifications using webhooks
+- **Built-in Log Filtering**: Server detects and notifies on important events (join codes, player activity)
+- **Server Lifecycle Hooks**: Notifications are sent automatically on server start/stop/backup events
+- **Single EC2 Instance**: All functionality is consolidated in one EC2 instance running the Docker container
 
 ### Cost Estimation
 
@@ -296,14 +302,31 @@ To test locally without incurring AWS costs:
    ```
    Then choose "Configure Local Testing" followed by "Start Local Test Server"
 
-2. Run tests:
+2. Run all tests:
    ```
-   npm run test
+   npm test
    ```
 
-3. Run specific tests:
+3. Run specific test categories:
    ```
-   npx jest path/to/test-file.test.ts
+   # Test webhook integration
+   npm test -- test/webhook-integration.test.ts
+   
+   # Test log pattern matching
+   npm test -- test/log-patterns.test.ts
+   
+   # Test Lambda functions
+   npm test -- test/lambdas/
+   ```
+
+4. Run tests in watch mode (useful during development):
+   ```
+   npm test -- --watch
+   ```
+
+5. Test coverage:
+   ```
+   npm test -- --coverage
    ```
 
 ## Configuration Reference
@@ -357,6 +380,11 @@ To test locally without incurring AWS costs:
 5. **Discord Authentication Failures**
    - Ensure your `DISCORD_AUTH_TOKEN` matches between your .env and what's deployed
    - Check CloudWatch Logs for authentication errors
+   
+6. **Discord Notifications Not Working**
+   - Run the webhook integration tests: `npm run test test/webhook-integration.test.ts`
+   - Verify the webhook URL is correctly set in SSM Parameter Store
+   - Check that your Discord channel allows webhook posts
 
 ### Getting Help
 

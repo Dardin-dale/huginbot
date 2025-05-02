@@ -140,6 +140,24 @@ async function startServerWithWorld(worldName: string): Promise<APIGatewayProxyR
       Overwrite: true
     }));
     
+    // Ensure we have a Discord webhook parameter that the Docker container can use
+    if (worldConfig.discordServerId) {
+      try {
+        // Check if webhook already exists in SSM
+        const webhookParamName = `${SSM_PARAMS.DISCORD_WEBHOOK}/${worldConfig.discordServerId}`;
+        await ssmClient.send(new GetParameterCommand({
+          Name: webhookParamName,
+          WithDecryption: true
+        }));
+        
+        // Parameter exists, no further action needed
+        console.log(`Discord webhook parameter ${webhookParamName} exists`);
+      } catch (err) {
+        console.log(`Discord webhook parameter not found for server ${worldConfig.discordServerId}. Notifications will not be sent.`);
+        // We don't need to fail here, the server will still start but notifications won't be sent
+      }
+    }
+    
     // Start the server as normal
     return await startServer();
   } catch (error) {
@@ -171,6 +189,22 @@ async function startServerForDiscord(discordServerId: string): Promise<APIGatewa
       Type: 'String',
       Overwrite: true
     }));
+    
+    // Ensure we have a Discord webhook parameter that the Docker container can use
+    try {
+      // Check if webhook already exists in SSM
+      const webhookParamName = `${SSM_PARAMS.DISCORD_WEBHOOK}/${discordServerId}`;
+      await ssmClient.send(new GetParameterCommand({
+        Name: webhookParamName,
+        WithDecryption: true
+      }));
+      
+      // Parameter exists, no further action needed
+      console.log(`Discord webhook parameter ${webhookParamName} exists`);
+    } catch (err) {
+      console.log(`Discord webhook parameter not found for server ${discordServerId}. Notifications will not be sent.`);
+      // We don't need to fail here, the server will still start but notifications won't be sent
+    }
     
     // Start the server as normal
     return await startServer();
