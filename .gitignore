@@ -19,3 +19,5 @@ cdk.out
 !/worlds/.gitkeep
 /mods/*
 !/mods/.gitkeep
+
+**/.claude/settings.local.json

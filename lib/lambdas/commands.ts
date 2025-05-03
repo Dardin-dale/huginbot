@@ -22,11 +22,13 @@ import {
   ec2Client, 
   ssmClient, 
   s3Client,
+  withRetry,
   VALHEIM_INSTANCE_ID, 
   BACKUP_BUCKET_NAME,
   SSM_PARAMS,
   getInstanceStatus,
-  getStatusMessage
+  getStatusMessage,
+  getDetailedServerStatus
 } from "./utils/aws-clients";
 import { 
   setupAuth,
@@ -38,7 +40,7 @@ import {
   createBadRequestResponse, 
   createErrorResponse 
 } from "./utils/responses";
-import { WORLD_CONFIGS, WorldConfig } from "./utils/world-config";
+import { WORLD_CONFIGS, WorldConfig, validateWorldConfig } from "./utils/world-config";
 
 export async function handler(
   event: APIGatewayProxyEvent, 
@@ -132,23 +134,36 @@ async function startServerWithWorld(worldName: string): Promise<APIGatewayProxyR
       );
     }
     
-    // Set active world in SSM Parameter Store
-    await ssmClient.send(new PutParameterCommand({
-      Name: SSM_PARAMS.ACTIVE_WORLD,
-      Value: JSON.stringify(worldConfig),
-      Type: 'String',
-      Overwrite: true
-    }));
+    // Validate the world configuration
+    const validationErrors = validateWorldConfig(worldConfig);
+    if (validationErrors.length > 0) {
+      return createBadRequestResponse(
+        `Invalid world configuration: ${validationErrors.join(', ')}`,
+        { available_worlds: WORLD_CONFIGS.map(w => w.name) }
+      );
+    }
+    
+    // Set active world in SSM Parameter Store with retry
+    await withRetry(() => 
+      ssmClient.send(new PutParameterCommand({
+        Name: SSM_PARAMS.ACTIVE_WORLD,
+        Value: JSON.stringify(worldConfig),
+        Type: 'String',
+        Overwrite: true
+      }))
+    );
     
     // Ensure we have a Discord webhook parameter that the Docker container can use
     if (worldConfig.discordServerId) {
       try {
         // Check if webhook already exists in SSM
         const webhookParamName = `${SSM_PARAMS.DISCORD_WEBHOOK}/${worldConfig.discordServerId}`;
-        await ssmClient.send(new GetParameterCommand({
-          Name: webhookParamName,
-          WithDecryption: true
-        }));
+        await withRetry(() => 
+          ssmClient.send(new GetParameterCommand({
+            Name: webhookParamName,
+            WithDecryption: true
+          }))
+        );
         
         // Parameter exists, no further action needed
         console.log(`Discord webhook parameter ${webhookParamName} exists`);
@@ -182,22 +197,35 @@ async function startServerForDiscord(discordServerId: string): Promise<APIGatewa
     // If multiple worlds, use the first one (can be enhanced with selection UI)
     const worldConfig = discordWorlds[0];
     
-    // Set active world in SSM Parameter Store
-    await ssmClient.send(new PutParameterCommand({
-      Name: SSM_PARAMS.ACTIVE_WORLD,
-      Value: JSON.stringify(worldConfig),
-      Type: 'String',
-      Overwrite: true
-    }));
+    // Validate the world configuration
+    const validationErrors = validateWorldConfig(worldConfig);
+    if (validationErrors.length > 0) {
+      return createBadRequestResponse(
+        `Invalid world configuration: ${validationErrors.join(', ')}`,
+        { available_worlds: WORLD_CONFIGS.map(w => w.name) }
+      );
+    }
+    
+    // Set active world in SSM Parameter Store with retry
+    await withRetry(() => 
+      ssmClient.send(new PutParameterCommand({
+        Name: SSM_PARAMS.ACTIVE_WORLD,
+        Value: JSON.stringify(worldConfig),
+        Type: 'String',
+        Overwrite: true
+      }))
+    );
     
     // Ensure we have a Discord webhook parameter that the Docker container can use
     try {
       // Check if webhook already exists in SSM
       const webhookParamName = `${SSM_PARAMS.DISCORD_WEBHOOK}/${discordServerId}`;
-      await ssmClient.send(new GetParameterCommand({
-        Name: webhookParamName,
-        WithDecryption: true
-      }));
+      await withRetry(() => 
+        ssmClient.send(new GetParameterCommand({
+          Name: webhookParamName,
+          WithDecryption: true
+        }))
+      );
       
       // Parameter exists, no further action needed
       console.log(`Discord webhook parameter ${webhookParamName} exists`);
@@ -235,13 +263,17 @@ async function startServer(): Promise<APIGatewayProxyResult> {
     
     // Reset any existing PlayFab join codes
     try {
-      await ssmClient.send(new DeleteParameterCommand({
-        Name: SSM_PARAMS.PLAYFAB_JOIN_CODE
-      }));
+      await withRetry(() =>
+        ssmClient.send(new DeleteParameterCommand({
+          Name: SSM_PARAMS.PLAYFAB_JOIN_CODE
+        }))
+      );
       
-      await ssmClient.send(new DeleteParameterCommand({
-        Name: SSM_PARAMS.PLAYFAB_JOIN_CODE_TIMESTAMP
-      }));
+      await withRetry(() =>
+        ssmClient.send(new DeleteParameterCommand({
+          Name: SSM_PARAMS.PLAYFAB_JOIN_CODE_TIMESTAMP
+        }))
+      );
     } catch (err) {
       // Parameters might not exist yet, which is fine
       console.log('No PlayFab parameters found to delete');
@@ -250,9 +282,11 @@ async function startServer(): Promise<APIGatewayProxyResult> {
     // Get the active world configuration
     let worldConfig;
     try {
-      const paramResult = await ssmClient.send(new GetParameterCommand({
-        Name: SSM_PARAMS.ACTIVE_WORLD
-      }));
+      const paramResult = await withRetry(() =>
+        ssmClient.send(new GetParameterCommand({
+          Name: SSM_PARAMS.ACTIVE_WORLD
+        }))
+      );
       
       if (paramResult.Parameter?.Value) {
         worldConfig = JSON.parse(paramResult.Parameter.Value);
@@ -267,7 +301,7 @@ async function startServer(): Promise<APIGatewayProxyResult> {
       InstanceIds: [VALHEIM_INSTANCE_ID]
     });
     
-    await ec2Client.send(command);
+    await withRetry(() => ec2Client.send(command));
     
     const worldInfo = worldConfig 
       ? `World: ${worldConfig.name} (${worldConfig.worldName})`
@@ -311,7 +345,7 @@ async function stopServer(): Promise<APIGatewayProxyResult> {
       InstanceIds: [VALHEIM_INSTANCE_ID]
     });
     
-    await ec2Client.send(command);
+    await withRetry(() => ec2Client.send(command));
     
     return createSuccessResponse({
       message: "Server is shutting down. Save your game before disconnecting!",
@@ -325,13 +359,47 @@ async function stopServer(): Promise<APIGatewayProxyResult> {
 
 async function getServerStatus(): Promise<APIGatewayProxyResult> {
   try {
-    const status = await getInstanceStatus();
-    const message = getStatusMessage(status);
+    // Use the enhanced detailed status function instead of basic status
+    const { 
+      status, 
+      message, 
+      isReady, 
+      isServerRunning, 
+      joinCode, 
+      launchTime 
+    } = await getDetailedServerStatus();
     
-    return createSuccessResponse({
+    // Build a more informative response
+    const response: any = {
       message: message,
-      status: status
-    });
+      status: status,
+      isReady: isReady,
+      isServerRunning: isServerRunning
+    };
+    
+    // Include optional fields if available
+    if (launchTime) {
+      response.launchTime = launchTime.toISOString();
+      
+      // Calculate uptime if server is running
+      if (status === 'running') {
+        const uptimeMs = Date.now() - launchTime.getTime();
+        const uptimeMinutes = Math.floor(uptimeMs / (1000 * 60));
+        const uptimeHours = Math.floor(uptimeMinutes / 60);
+        const remainingMinutes = uptimeMinutes % 60;
+        
+        response.uptime = uptimeHours > 0 
+          ? `${uptimeHours}h ${remainingMinutes}m`
+          : `${uptimeMinutes}m`;
+      }
+    }
+    
+    // Include join code if available and the server is ready
+    if (isReady && joinCode) {
+      response.joinCode = joinCode;
+    }
+    
+    return createSuccessResponse(response);
   } catch (error) {
     console.error("Error getting server status:", error);
     return createErrorResponse("Failed to get server status");
@@ -362,9 +430,11 @@ async function handleBackup(action: string): Promise<APIGatewayProxyResult> {
           // Get the active world configuration
           let worldInfo = 'default world';
           try {
-            const paramResult = await ssmClient.send(new GetParameterCommand({
-              Name: SSM_PARAMS.ACTIVE_WORLD
-            }));
+            const paramResult = await withRetry(() =>
+              ssmClient.send(new GetParameterCommand({
+                Name: SSM_PARAMS.ACTIVE_WORLD
+              }))
+            );
             
             if (paramResult.Parameter?.Value) {
               const worldConfig = JSON.parse(paramResult.Parameter.Value);
@@ -386,7 +456,7 @@ async function handleBackup(action: string): Promise<APIGatewayProxyResult> {
             Comment: `Manual backup triggered via Discord at ${timestamp}`
           });
           
-          await ssmClient.send(command);
+          await withRetry(() => ssmClient.send(command));
           
           return createSuccessResponse({
             message: `Backup initiated for ${worldInfo}. This may take a few minutes to complete.`,
@@ -405,9 +475,11 @@ async function handleBackup(action: string): Promise<APIGatewayProxyResult> {
           let backupPath = 'worlds/default';
           let worldName = 'default';
           try {
-            const paramResult = await ssmClient.send(new GetParameterCommand({
-              Name: SSM_PARAMS.ACTIVE_WORLD
-            }));
+            const paramResult = await withRetry(() =>
+              ssmClient.send(new GetParameterCommand({
+                Name: SSM_PARAMS.ACTIVE_WORLD
+              }))
+            );
             
             if (paramResult.Parameter?.Value) {
               const worldConfig = JSON.parse(paramResult.Parameter.Value);
@@ -425,7 +497,7 @@ async function handleBackup(action: string): Promise<APIGatewayProxyResult> {
             MaxKeys: 5  // Limit to the 5 most recent backups
           });
           
-          const response = await s3Client.send(command);
+          const response = await withRetry(() => s3Client.send(command));
           
           // Format the backup information
           const backups = response.Contents ? 
@@ -565,9 +637,11 @@ async function showHelp(): Promise<APIGatewayProxyResult> {
   // Get the active world configuration
   let worldInfo = "";
   try {
-    const paramResult = await ssmClient.send(new GetParameterCommand({
-      Name: SSM_PARAMS.ACTIVE_WORLD
-    }));
+    const paramResult = await withRetry(() =>
+      ssmClient.send(new GetParameterCommand({
+        Name: SSM_PARAMS.ACTIVE_WORLD
+      }))
+    );
     
     if (paramResult.Parameter?.Value) {
       const worldConfig = JSON.parse(paramResult.Parameter.Value);

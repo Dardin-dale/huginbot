@@ -10,7 +10,8 @@ import {
     EndpointType
 } from "aws-cdk-lib/aws-apigateway";
 import {
-    Runtime
+    Runtime,
+    LogRetention
 } from "aws-cdk-lib/aws-lambda";
 import {
     NodejsFunction
@@ -20,7 +21,8 @@ import {
 } from "aws-cdk-lib/aws-iam";
 import {
     Rule,
-    EventPattern
+    EventPattern,
+    Schedule
 } from "aws-cdk-lib/aws-events";
 import {
     LambdaFunction
@@ -28,6 +30,9 @@ import {
 import {
     StringParameter
 } from "aws-cdk-lib/aws-ssm";
+import {
+    RetentionDays
+} from "aws-cdk-lib/aws-logs";
 import * as path from "path";
 import { Construct } from "constructs";
 import * as fs from 'fs';
@@ -109,6 +114,12 @@ export class HuginbotStack extends Stack {
             ...lambdaDefaultProps,
             entry: "lib/lambdas/commands.ts",
             handler: "handler",
+        });
+        
+        // Add CloudWatch log retention
+        new LogRetention(this, 'CommandsFunctionLogRetention', {
+            logGroupName: `/aws/lambda/${commandsFunction.functionName}`,
+            retention: RetentionDays.ONE_DAY
         });
 
         // Grant EC2 permissions to the Lambda functions - scoped to specific instance
@@ -212,6 +223,50 @@ export class HuginbotStack extends Stack {
         commandsResource.addMethod("POST", new LambdaIntegration(commandsFunction));
 
         this.apiUrl = api.url;
+        
+        // Create cleanup-backups Lambda function
+        const cleanupBackupsFunction = new NodejsFunction(this, "CleanupBackupsFunction", {
+            ...lambdaDefaultProps,
+            entry: "lib/lambdas/cleanup-backups.ts",
+            handler: "handler",
+            timeout: Duration.minutes(5), // Increased timeout for cleanup operations
+            environment: {
+                ...lambdaEnv,
+                BACKUPS_TO_KEEP: process.env.BACKUPS_TO_KEEP || '7' // Keep last 7 backups by default
+            }
+        });
+        
+        // Add CloudWatch log retention for cleanup Lambda
+        new LogRetention(this, 'CleanupBackupsFunctionLogRetention', {
+            logGroupName: `/aws/lambda/${cleanupBackupsFunction.functionName}`,
+            retention: RetentionDays.ONE_DAY
+        });
+        
+        // Add S3 delete permissions for cleanup-backups Lambda
+        if (backupBucketName) {
+            const s3DeletePolicy = new PolicyStatement({
+                actions: [
+                    "s3:DeleteObject"
+                ],
+                resources: [
+                    `arn:aws:s3:::${backupBucketName}/worlds/*`
+                ]
+            });
+            cleanupBackupsFunction.addToRolePolicy(s3DeletePolicy);
+            cleanupBackupsFunction.addToRolePolicy(s3BackupPolicy); // Add list/get permissions too
+        }
+        
+        // Create CloudWatch Event Rule to trigger cleanup daily
+        const cleanupSchedule = new Rule(this, 'DailyBackupCleanupRule', {
+            schedule: Schedule.cron({ 
+                minute: '0', 
+                hour: '3' // Run at 3 AM UTC
+            }),
+            description: 'Daily cleanup of old Valheim world backups'
+        });
+        
+        // Add Lambda as target for the event rule
+        cleanupSchedule.addTarget(new LambdaFunction(cleanupBackupsFunction));
 
         // Outputs
         new cdk.CfnOutput(this, "ApiEndpoint", {

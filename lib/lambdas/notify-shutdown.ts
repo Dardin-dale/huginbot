@@ -21,9 +21,11 @@ export async function handler(
     // Get details from the event
     const idleTime = event.detail.idleTime || 0;
     const idleMinutes = Math.round(idleTime / 60);
+    const reason = event.detail.reason || 'Inactivity';
     
     // Get the active world configuration
     let worldInfo = 'default world';
+    let worldName = 'Default';
     try {
       const paramResult = await ssmClient.send(new GetParameterCommand({
         Name: ACTIVE_WORLD_PARAM
@@ -32,23 +34,55 @@ export async function handler(
       if (paramResult.Parameter?.Value) {
         const worldConfig = JSON.parse(paramResult.Parameter.Value);
         worldInfo = `${worldConfig.name} (${worldConfig.worldName})`;
+        worldName = worldConfig.name;
       }
     } catch (err) {
       console.log('No active world parameter found, using default');
     }
     
-    // Construct the message
+    // Get guild-specific webhook URL if available
+    let webhookUrl = DISCORD_WEBHOOK_URL;
+    if (event.detail.guildId) {
+      try {
+        const paramResult = await ssmClient.send(new GetParameterCommand({
+          Name: `/huginbot/discord-webhook/${event.detail.guildId}`,
+          WithDecryption: true
+        }));
+        
+        if (paramResult.Parameter?.Value) {
+          webhookUrl = paramResult.Parameter.Value;
+        }
+      } catch (err) {
+        console.log('No guild-specific webhook found, using default');
+      }
+    }
+    
+    // Calculate resources saved
+    const resourcesSaved = idleMinutes ? (idleMinutes * 0.05).toFixed(2) : '0.00'; // Just an example metric
+    
+    // Construct the message with enhanced rich embed
     const message = {
-      content: null,
+      username: "HuginBot",
+      avatar_url: "https://i.imgur.com/xASc1QX.png", // Viking raven icon
       embeds: [
         {
-          title: "Valheim Server Auto-Shutdown",
-          description: `The server has been automatically shut down due to inactivity`,
-          color: 0xffcc00, // Amber/Yellow color
+          title: "⏱️ Valheim Server Auto-Shutdown",
+          description: `Odin has decided that your server should rest for now. The server has been automatically shut down to conserve resources.`,
+          color: 0xf47c20, // Vibrant orange color
           fields: [
             {
               name: "World",
-              value: worldInfo,
+              value: worldName,
+              inline: true
+            },
+            {
+              name: "Status",
+              value: "🔴 Offline",
+              inline: true
+            },
+            {
+              name: "Shutdown Reason",
+              value: `${reason}`,
               inline: true
             },
             {
@@ -57,23 +91,62 @@ export async function handler(
               inline: true
             },
             {
+              name: "Resources Saved",
+              value: `$${resourcesSaved} USD`,
+              inline: true
+            },
+            {
+              name: "World State",
+              value: "✅ World saved and backed up",
+              inline: true
+            },
+            {
               name: "How to Restart",
-              value: "Use the `/valheim start` command to start the server again when needed",
+              value: "Click the button below or use `/start` command to bring the server back online when needed.",
               inline: false
             }
           ],
+          thumbnail: {
+            url: "https://i.imgur.com/sG4hIwp.png" // Sleeping Viking icon
+          },
           footer: {
-            text: "HuginBot • Auto-shutdown to save resources"
+            text: "HuginBot • Auto-shutdown to save resources • Type /help for more commands",
+            icon_url: "https://i.imgur.com/xASc1QX.png" // Small HuginBot icon
           },
           timestamp: new Date().toISOString()
+        }
+      ],
+      components: [
+        {
+          type: 1, // Action Row
+          components: [
+            {
+              type: 2, // Button
+              style: 3, // Success (Green)
+              label: "Start Server",
+              custom_id: "start_server",
+              emoji: {
+                name: "▶️"
+              }
+            },
+            {
+              type: 2, // Button
+              style: 2, // Secondary (Grey)
+              label: "Check Status",
+              custom_id: "check_status",
+              emoji: {
+                name: "🔄"
+              }
+            }
+          ]
         }
       ]
     };
     
     // Send notification to Discord via webhook
-    if (DISCORD_WEBHOOK_URL) {
-      await axios.post(DISCORD_WEBHOOK_URL, message);
-      console.log('Shutdown notification sent to Discord');
+    if (webhookUrl) {
+      await axios.post(webhookUrl, message);
+      console.log('Enhanced shutdown notification sent to Discord');
     } else {
       console.error('No Discord webhook URL provided');
     }

@@ -29,6 +29,8 @@ export async function handler(
     
     // Get the active world configuration
     let worldInfo = 'default world';
+    let worldName = 'Default';
+    let serverPassword = '*****';
     try {
       const paramResult = await ssmClient.send(new GetParameterCommand({
         Name: ACTIVE_WORLD_PARAM
@@ -37,40 +39,69 @@ export async function handler(
       if (paramResult.Parameter?.Value) {
         const worldConfig = JSON.parse(paramResult.Parameter.Value);
         worldInfo = `${worldConfig.name} (${worldConfig.worldName})`;
+        worldName = worldConfig.name;
+        serverPassword = worldConfig.serverPassword || '*****';
       }
     } catch (err) {
       console.log('No active world parameter found, using default');
     }
+
+    // Get server address if available
+    let serverAddress = process.env.SERVER_ADDRESS || 'Auto-assigned';
     
-    // Construct the message
+    // Construct the message with rich embed
     const message = {
-      content: null,
+      username: "HuginBot",
+      avatar_url: "https://i.imgur.com/xASc1QX.png", // Viking raven icon
       embeds: [
         {
-          title: "Valheim Server Ready!",
-          description: `The server is now online and ready to play with world: ${worldInfo}`,
+          title: "🎮 Valheim Server Ready!",
+          description: `Your Valheim journey awaits! The server is now online and ready for adventure.`,
           color: 0x33cc33, // Green color
           fields: [
+            {
+              name: "World",
+              value: worldName,
+              inline: true
+            },
             {
               name: "Join Code",
               value: `\`${joinCode}\``,
               inline: true
             },
             {
+              name: "Server Password",
+              value: `||${serverPassword}||`, // Spoiler tag to hide password
+              inline: true
+            },
+            {
               name: "How to Join",
-              value: "Open Valheim and select 'Start Game' → 'Join Game' → 'Join by code'",
+              value: "1. Open Valheim\n2. Select 'Start Game' → 'Join Game'\n3. Choose 'Join by code'\n4. Enter the code above\n5. When prompted for password, enter the server password",
+              inline: false
+            },
+            {
+              name: "Server Features",
+              value: "✅ Automatic backups\n✅ Discord integration\n✅ Low-latency hosting",
               inline: false
             }
           ],
+          thumbnail: {
+            url: "https://i.imgur.com/UQYgxBG.png" // Valheim logo
+          },
+          image: {
+            url: "https://i.imgur.com/yGrVDso.png" // Valheim banner image
+          },
           footer: {
-            text: "HuginBot • Server will auto-shutdown after inactivity"
+            text: "HuginBot • Server will auto-shutdown after inactivity • Type /help for commands",
+            icon_url: "https://i.imgur.com/xASc1QX.png" // Small HuginBot icon
           },
           timestamp: new Date().toISOString()
         }
       ]
     };
 
-
+    // Get guild-specific webhook URL if available
+    let webhookUrl = DISCORD_WEBHOOK_URL;
     if (event.detail.guildId) {
       try {
         const paramResult = await ssmClient.send(new GetParameterCommand({
@@ -87,8 +118,8 @@ export async function handler(
     }
     
     // Send notification to Discord via webhook
-    if (DISCORD_WEBHOOK_URL) {
-      await axios.post(DISCORD_WEBHOOK_URL, message);
+    if (webhookUrl) {
+      await axios.post(webhookUrl, message);
       console.log('Discord notification sent successfully');
     } else {
       console.error('No Discord webhook URL provided');
