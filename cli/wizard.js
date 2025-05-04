@@ -5,10 +5,8 @@
 
 const inquirer = require('inquirer');
 const chalk = require('chalk');
-const ora = require('ora');
-const boxen = require('boxen');
-const open = require('open');
 const { spawn } = require('child_process');
+const { loadESMDependencies } = require('./utils/esm-loader');
 const { 
   checkAwsCredentials, 
   setupAwsProfile 
@@ -20,6 +18,9 @@ const { deployStack } = require('./commands/deploy');
  * Run the setup wizard
  */
 async function runSetupWizard() {
+  // Load ESM dependencies
+  const { boxen, ora, open } = await loadESMDependencies();
+  
   console.log(boxen(chalk.bold('Welcome to HuginBot Setup Wizard'), { 
     padding: 1, 
     margin: 1, 

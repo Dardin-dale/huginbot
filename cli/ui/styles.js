@@ -4,8 +4,8 @@
  * Provides styling for CLI output
  */
 const chalk = require('chalk');
-const boxen = require('boxen');
 const figlet = require('figlet');
+const { loadESMDependencies } = require('../utils/esm-loader');
 
 /**
  * Style constants for consistent CLI appearance
@@ -110,9 +110,10 @@ function header(text, options = {}) {
  * Create a boxed message
  * @param {string} text - Message content
  * @param {string} type - Box type: 'error', 'success', 'info', 'warning', or 'plain'
- * @returns {string} Boxed message
+ * @returns {Promise<string>} Boxed message
  */
-function box(text, type = 'plain') {
+async function box(text, type = 'plain') {
+  const { boxen } = await loadESMDependencies();
   if (!styles.boxes[type]) {
     type = 'plain';
   }
@@ -217,10 +218,16 @@ function separator(title = '', color = 'muted') {
  * Format a link
  * @param {string} text - Link text
  * @param {string} url - URL
- * @returns {string} Formatted link
+ * @returns {Promise<string>} Formatted link
  */
-function link(text, url) {
-  return `${text}: ${chalk.blue.underline(url)}`;
+async function link(text, url) {
+  try {
+    const { terminalLink } = await loadESMDependencies();
+    return terminalLink(text, url);
+  } catch (error) {
+    // Fallback if terminal-link fails
+    return `${text}: ${chalk.blue.underline(url)}`;
+  }
 }
 
 /**
@@ -265,10 +272,37 @@ function error(message, error = null) {
   return output;
 }
 
+// Create a synchronous box function using a preloaded boxen
+// This helps with functions that can't easily be made async
+let cachedBoxen = null;
+function boxSync(text, type = 'plain') {
+  if (!cachedBoxen) {
+    console.warn('Warning: Using boxSync before boxen is loaded. Box formatting may be missing.');
+    return text;
+  }
+  
+  if (!styles.boxes[type]) {
+    type = 'plain';
+  }
+  
+  return cachedBoxen(text, styles.boxes[type]);
+}
+
+// Preload boxen for sync operations
+(async function() {
+  try {
+    const { boxen: loadedBoxen } = await loadESMDependencies();
+    cachedBoxen = loadedBoxen;
+  } catch (error) {
+    console.error('Failed to preload boxen:', error);
+  }
+})();
+
 module.exports = {
   styles,
   header,
   box,
+  boxSync,
   title,
   listItem,
   status,

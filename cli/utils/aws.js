@@ -3,7 +3,9 @@
  * This module provides utility functions for interacting with AWS services
  */
 
-const { SSM } = require('@aws-sdk/client-ssm');
+const { SSM, ListParametersCommand } = require('@aws-sdk/client-ssm');
+const { STSClient, GetCallerIdentityCommand } = require('@aws-sdk/client-sts');
+const { fromIni } = require('@aws-sdk/credential-providers');
 const { EC2 } = require('@aws-sdk/client-ec2');
 const { CloudFormation } = require('@aws-sdk/client-cloudformation');
 const { S3Client, ListObjectsV2Command, GetObjectCommand } = require('@aws-sdk/client-s3');
@@ -26,10 +28,33 @@ const getS3Client = () => new S3Client();
  */
 async function checkAwsCredentials() {
   try {
-    const ssm = getSSMClient();
-    await ssm.listParameters({ MaxResults: 1 });
+    const config = getConfig();
+    const profile = config.awsProfile || process.env.AWS_PROFILE || 'default';
+    
+    // Create STS client with specific profile if configured
+    const stsConfig = {};
+    if (profile && profile !== 'default') {
+      stsConfig.credentials = fromIni({ profile });
+    }
+    
+    const sts = new STSClient(stsConfig);
+    const command = new GetCallerIdentityCommand({});
+    const response = await sts.send(command);
+    
+    // Optionally log the account ID for debugging
+    console.log(chalk.green(`✓ AWS credentials valid (Account: ${response.Account})`));
+    
     return true;
   } catch (error) {
+    // Provide more specific error messages
+    if (error.name === 'CredentialsProviderError') {
+      console.log(chalk.red('AWS credentials not found or invalid'));
+    } else if (error.message.includes('Profile')) {
+      console.log(chalk.red(`AWS profile configuration error: ${error.message}`));
+    } else {
+      console.log(chalk.red(`AWS authentication error: ${error.message}`));
+    }
+    
     return false;
   }
 }

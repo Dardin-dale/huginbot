@@ -3,8 +3,8 @@
  * 
  * Provides loading spinners and progress indicators
  */
-const ora = require('ora');
 const chalk = require('chalk');
+const { loadESMDependencies } = require('../utils/esm-loader');
 
 /**
  * Predefined spinner styles for different operations
@@ -63,9 +63,10 @@ const spinnerStyles = {
  * Create a spinner with predefined style
  * @param {string} type - Spinner type (deploy, server, backup, load, aws, default)
  * @param {string} customText - Custom text to override default
- * @returns {Object} Ora spinner instance
+ * @returns {Promise<Object>} Ora spinner instance
  */
-function createSpinner(type = 'default', customText = null) {
+async function createSpinner(type = 'default', customText = null) {
+  const { ora } = await loadESMDependencies();
   const style = spinnerStyles[type] || spinnerStyles.default;
   const text = customText || style.text;
   
@@ -80,9 +81,10 @@ function createSpinner(type = 'default', customText = null) {
  * Create a spinner for a specific operation
  * @param {string} operation - Operation name
  * @param {Object} options - Spinner options
- * @returns {Object} Ora spinner instance with additional methods
+ * @returns {Promise<Object>} Ora spinner instance with additional methods
  */
-function spinner(operation, options = {}) {
+async function spinner(operation, options = {}) {
+  const { ora } = await loadESMDependencies();
   const defaultOptions = {
     type: 'default',
     startText: null,
@@ -167,7 +169,7 @@ async function withSpinner(fn, options = {}) {
   };
   
   const opts = { ...defaultOptions, ...options };
-  const spin = spinner(opts.operation, {
+  const spin = await spinner(opts.operation, {
     ...opts,
     autoStart: true
   });
@@ -186,9 +188,10 @@ async function withSpinner(fn, options = {}) {
  * Create a multi-step spinner that tracks progress through multiple operations
  * @param {Array} steps - Array of step descriptions
  * @param {Object} options - Spinner options
- * @returns {Object} Multi-step spinner object
+ * @returns {Promise<Object>} Multi-step spinner object
  */
-function multiStep(steps, options = {}) {
+async function multiStep(steps, options = {}) {
+  const { ora } = await loadESMDependencies();
   const defaultOptions = {
     type: 'default',
     color: null,

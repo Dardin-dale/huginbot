@@ -49,6 +49,7 @@
         "@aws-sdk/client-ec2": "^3.470.0",
         "@aws-sdk/client-s3": "^3.470.0",
         "@aws-sdk/client-ssm": "^3.470.0",
+        "@aws-sdk/credential-providers": "^3.799.0",
         "@discordjs/builders": "^1.10.1",
         "@discordjs/rest": "^2.4.3",
         "aws-cdk-lib": "^2.190.0",

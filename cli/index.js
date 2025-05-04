@@ -17,6 +17,7 @@ try {
 const { program } = require('commander');
 const chalk = require('chalk');
 const figlet = require('figlet');
+const { loadESMDependencies } = require('./utils/esm-loader');
 
 // Import command modules
 const deployCommands = require('./commands/deploy');
@@ -33,9 +34,17 @@ const { runSetupWizard } = require('./wizard');
 // Import interactive mode
 const interactive = require('./interactive');
 
-// Display ASCII art header
-// Raven artwork (from JPEG converted to ASCII)
-console.log(chalk.blue(`
+/**
+ * Initialize CLI with ESM dependencies preloaded
+ */
+async function initializeCLI() {
+  try {
+    // Preload ESM dependencies for better performance
+    await loadESMDependencies();
+    
+    // Display ASCII art header
+    // Raven artwork (from JPEG converted to ASCII)
+    console.log(chalk.blue(`
                  **#%                       
                #@@@*%@@%                    
             -@@@@@@@@@@@##%%              %%
@@ -51,9 +60,9 @@ console.log(chalk.blue(`
                    *#%+@#@#%%               
                    @# % @ % #               
                       @   @ %                                             
-`));
+    `));
 
-console.log(chalk.cyan(`
+    console.log(chalk.cyan(`
    ▄█    █▄    ███    █▄     ▄██████▄   ▄█  ███▄▄▄▄   ▀█████████▄   ▄██████▄      ███     
   ███    ███   ███    ███   ███    ███ ███  ███▀▀▀██▄   ███    ███ ███    ███ ▀█████████▄ 
   ███    ███   ███    ███   ███    █▀  ███▌ ███   ███   ███    ███ ███    ███    ▀███▀▀██ 
@@ -62,33 +71,42 @@ console.log(chalk.cyan(`
   ███    ███   ███    ███   ███    ███ ███  ███   ███   ███    ██▄ ███    ███     ███     
   ███    ███   ███    ███   ███    ███ ███  ███   ███   ███    ███ ███    ███     ███     
   ███    █▀    ████████▀    ████████▀  █▀    ▀█   █▀  ▄█████████▀   ▀██████▀     ▄████▀
-`));
+    `));
 
-program
-  .version('1.0.0')
-  .description('HuginBot - Valheim Server Manager');
+    program
+      .version('1.0.0')
+      .description('HuginBot - Valheim Server Manager');
 
-// Add "Get Started" command
-program
-  .command('setup')
-  .description('Start the guided setup process')
-  .action(runSetupWizard);
+    // Add "Get Started" command
+    program
+      .command('setup')
+      .description('Start the guided setup process')
+      .action(runSetupWizard);
 
-// Register command groups
-deployCommands.register(program);
-serverCommands.register(program);
-worldsCommands.register(program);
-backupCommands.register(program);
-discordCommands.register(program);
-testingCommands.register(program);
-cleanupCommands.register(program);
+    // Register command groups
+    deployCommands.register(program);
+    serverCommands.register(program);
+    worldsCommands.register(program);
+    backupCommands.register(program);
+    discordCommands.register(program);
+    testingCommands.register(program);
+    cleanupCommands.register(program);
 
-// Add interactive mode
-program
-  .command('interactive', { isDefault: true })
-  .description('Start interactive menu')
-  .action(() => {
-    interactive();
-  });
+    // Add interactive mode
+    program
+      .command('interactive', { isDefault: true })
+      .description('Start interactive menu')
+      .action(() => {
+        interactive();
+      });
 
-program.parse(process.argv);
+    // Parse arguments
+    program.parse(process.argv);
+  } catch (error) {
+    console.error('Failed to initialize CLI:', error);
+    process.exit(1);
+  }
+}
+
+// Start the CLI
+initializeCLI().catch(console.error);
