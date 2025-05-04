@@ -2,6 +2,12 @@
 !jest.config.js
 !test/*.test.js
 !test/**/*.test.js
+# Allow CLI JavaScript files
+!cli/**/*.js
+# Allow bin directory scripts
+!bin/*.js
+# Allow module JavaScript files (.mjs)
+!*.mjs
 *.d.ts
 node_modules
 .env
