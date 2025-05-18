@@ -2,7 +2,7 @@
     "name": "huginbot",
     "version": "0.1.0",
     "bin": {
-        "huginbot": "cli/index.js",
+        "huginbot": "./cli/index.js",
         "valheim-ec2-cdk": "bin/valheim-ec2-cdk.js"
     },
     "scripts": {
@@ -13,12 +13,12 @@
         "cli": "node cli/index.js",
         "cli:dev": "nodemon cli/index.js",
         "cli:interactive": "node cli/index.js interactive",
-        "cli:legacy": "node cli.mjs",
         "cli:setup": "node cli/index.js setup",
         "start:local": "node cli/index.js --local",
-        "deploy:valheim": "node cli/index.js deploy valheim",
-        "deploy:discord": "node cli/index.js deploy discord",
-        "deploy:all": "node cli/index.js deploy all",
+        "deploy:valheim": "cdk deploy ValheimStack",
+        "deploy:discord": "cdk deploy HuginBotStack",
+        "deploy:all": "cdk deploy --all",
+        "destroy:all": "cdk destroy --all",
         "server:start": "node cli/index.js server start",
         "server:stop": "node cli/index.js server stop",
         "server:status": "node cli/index.js server status",

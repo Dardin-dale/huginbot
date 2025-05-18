@@ -19,6 +19,21 @@ const config = new Conf({
   cwd: configDir,
   configName: 'config',
   schema: {
+    // AWS Configuration
+    awsRegion: {
+      type: 'string',
+      default: process.env.AWS_REGION || 'us-west-2'
+    },
+    awsProfile: {
+      type: 'string',
+      default: process.env.AWS_PROFILE || 'default'
+    },
+    awsAccountId: {
+      type: 'string',
+      default: ''
+    },
+    
+    // Server Configuration
     serverName: {
       type: 'string',
       default: 'ValheimServer'
@@ -43,10 +58,30 @@ const config = new Conf({
       type: 'string',
       default: ''
     },
+    publicIp: {
+      type: 'string',
+      default: ''
+    },
     deployedAt: {
       type: 'string',
       default: ''
     },
+    activeWorld: {
+      type: 'string',
+      default: ''
+    },
+    
+    // Backup Configuration
+    backupBucket: {
+      type: 'string',
+      default: ''
+    },
+    backupsToKeep: {
+      type: 'number',
+      default: 7
+    },
+    
+    // Testing Configuration
     useLocalTesting: {
       type: 'boolean',
       default: false
@@ -71,17 +106,36 @@ const config = new Conf({
       type: 'boolean',
       default: true
     },
+    
+    // Discord Configuration
     discord: {
       type: 'object',
       default: {
         appId: '',
         publicKey: '',
-        botToken: ''
+        botToken: '',
+        configured: false,
+        deployed: false,
+        deployedAt: '',
+        commandPrefix: '!',
+        useSlashCommands: true
       }
     },
+    
+    // World Configurations
     worlds: {
       type: 'array',
       default: []
+    },
+    
+    // Auto-cleanup Configuration
+    autoCleanup: {
+      type: 'boolean',
+      default: false
+    },
+    autoCleanupDays: {
+      type: 'number',
+      default: 30
     }
   }
 });
