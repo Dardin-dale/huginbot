@@ -1,17 +1,60 @@
 /**
  * HuginBot CLI - Configuration Management
  * This module handles configuration storage and retrieval
+ * Updated to prioritize .env configuration
  */
 
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const Conf = require('conf');
+require('dotenv').config(); // Load environment variables from .env
 
 // Create config directory if it doesn't exist
 const configDir = path.join(os.homedir(), '.huginbot');
 if (!fs.existsSync(configDir)) {
   fs.mkdirSync(configDir, { recursive: true });
+}
+
+// Parse WORLD_CONFIGURATIONS from .env if available
+function parseWorldsFromEnv() {
+  const worldConfigs = [];
+  
+  if (process.env.WORLD_CONFIGURATIONS) {
+    // Format is World1,123456789012345678,Midgard,password1;World2,876543210987654321,Asgard,password2
+    const worlds = process.env.WORLD_CONFIGURATIONS.split(';');
+    
+    worlds.forEach(worldString => {
+      const [name, discordServerId, worldName, serverPassword] = worldString.split(',');
+      if (name && worldName && serverPassword) {
+        worldConfigs.push({
+          name,
+          discordServerId,
+          worldName,
+          serverPassword,
+          adminIds: process.env.VALHEIM_ADMIN_IDS || ''
+        });
+      }
+    });
+  }
+  
+  return worldConfigs;
+}
+
+// Initialize Discord config from .env if available
+function getDiscordConfigFromEnv() {
+  const discordConfig = {
+    appId: process.env.DISCORD_APP_ID || '',
+    publicKey: process.env.DISCORD_BOT_PUBLIC_KEY || '',
+    botToken: process.env.DISCORD_BOT_SECRET_TOKEN || '',
+    configured: !!(process.env.DISCORD_APP_ID && process.env.DISCORD_BOT_SECRET_TOKEN),
+    deployed: false,
+    deployedAt: '',
+    commandPrefix: '!',
+    useSlashCommands: true
+  };
+  
+  return discordConfig;
 }
 
 // Initialize configuration store
@@ -36,23 +79,35 @@ const config = new Conf({
     // Server Configuration
     serverName: {
       type: 'string',
-      default: 'ValheimServer'
+      default: process.env.VALHEIM_SERVER_NAME || 'ValheimServer'
     },
     worldName: {
       type: 'string',
-      default: 'ValheimWorld'
+      default: process.env.VALHEIM_WORLD_NAME || 'ValheimWorld'
     },
     serverPassword: {
       type: 'string',
-      default: 'valheim'
+      default: process.env.VALHEIM_SERVER_PASSWORD || 'valheim'
     },
     adminIds: {
       type: 'string',
-      default: ''
+      default: process.env.VALHEIM_ADMIN_IDS || ''
+    },
+    serverArgs: {
+      type: 'string',
+      default: process.env.VALHEIM_SERVER_ARGS || '-crossplay'
+    },
+    bepInExEnabled: {
+      type: 'boolean',
+      default: process.env.VALHEIM_BEPINEX === 'true' || true
+    },
+    updateIfIdle: {
+      type: 'boolean',
+      default: process.env.VALHEIM_UPDATE_IF_IDLE === 'true' || false
     },
     instanceType: {
       type: 'string',
-      default: 't3.medium'
+      default: process.env.VALHEIM_INSTANCE_TYPE || 't3.medium'
     },
     instanceId: {
       type: 'string',
@@ -78,7 +133,7 @@ const config = new Conf({
     },
     backupsToKeep: {
       type: 'number',
-      default: 7
+      default: parseInt(process.env.BACKUPS_TO_KEEP, 10) || 7
     },
     
     // Testing Configuration
@@ -110,22 +165,13 @@ const config = new Conf({
     // Discord Configuration
     discord: {
       type: 'object',
-      default: {
-        appId: '',
-        publicKey: '',
-        botToken: '',
-        configured: false,
-        deployed: false,
-        deployedAt: '',
-        commandPrefix: '!',
-        useSlashCommands: true
-      }
+      default: getDiscordConfigFromEnv()
     },
     
     // World Configurations
     worlds: {
       type: 'array',
-      default: []
+      default: parseWorldsFromEnv()
     },
     
     // Auto-cleanup Configuration
@@ -141,11 +187,58 @@ const config = new Conf({
 });
 
 /**
- * Get full configuration
+ * Get full configuration, prioritizing .env values when available
  * @returns {Object} The full configuration object
  */
 function getConfig() {
-  return config.store;
+  // Create a copy of the store configuration
+  const configData = { ...config.store };
+  
+  // Override with .env values if they exist
+  if (process.env.AWS_REGION) configData.awsRegion = process.env.AWS_REGION;
+  if (process.env.AWS_PROFILE) configData.awsProfile = process.env.AWS_PROFILE;
+  
+  // Dynamically process all VALHEIM_* environment variables
+  Object.keys(process.env).forEach(key => {
+    if (key.startsWith('VALHEIM_')) {
+      // Convert to camelCase for storing in config
+      // Example: VALHEIM_SERVER_NAME -> serverName
+      const configKey = key.replace('VALHEIM_', '')
+        .toLowerCase()
+        .replace(/_([a-z])/g, (match, letter) => letter.toUpperCase());
+      
+      // Handle boolean values
+      if (process.env[key] === 'true' || process.env[key] === 'false') {
+        configData[configKey] = process.env[key] === 'true';
+      } else {
+        configData[configKey] = process.env[key];
+      }
+    }
+  });
+  
+  // Handle backup configuration
+  if (process.env.BACKUPS_TO_KEEP) {
+    configData.backupsToKeep = parseInt(process.env.BACKUPS_TO_KEEP, 10);
+  }
+  
+  // Override Discord configuration
+  if (process.env.DISCORD_APP_ID || process.env.DISCORD_BOT_PUBLIC_KEY || process.env.DISCORD_BOT_SECRET_TOKEN) {
+    configData.discord = configData.discord || {};
+    if (process.env.DISCORD_APP_ID) configData.discord.appId = process.env.DISCORD_APP_ID;
+    if (process.env.DISCORD_BOT_PUBLIC_KEY) configData.discord.publicKey = process.env.DISCORD_BOT_PUBLIC_KEY;
+    if (process.env.DISCORD_BOT_SECRET_TOKEN) configData.discord.botToken = process.env.DISCORD_BOT_SECRET_TOKEN;
+    if (process.env.DISCORD_APP_ID && process.env.DISCORD_BOT_SECRET_TOKEN) configData.discord.configured = true;
+  }
+  
+  // Parse and override worlds configuration if present in .env
+  if (process.env.WORLD_CONFIGURATIONS) {
+    const newWorlds = parseWorldsFromEnv();
+    if (newWorlds.length > 0) {
+      configData.worlds = [...newWorlds];
+    }
+  }
+  
+  return configData;
 }
 
 /**

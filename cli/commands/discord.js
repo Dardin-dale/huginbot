@@ -318,9 +318,9 @@ async function checkDiscordStatus() {
   
   const spinner = ora('Checking Discord bot status...').start();
   
-  // Check if Discord stack is deployed
+  // Check if Huginbot stack is deployed
   try {
-    const discordDeployed = await isStackDeployed('DiscordBotStack');
+    const discordDeployed = await isStackDeployed('HuginBotStack');
     
     if (!discordDeployed) {
       spinner.fail('Discord bot not deployed');
@@ -400,15 +400,8 @@ async function updateDiscordCommands() {
   // Execute command registration script
   try {
     await new Promise((resolve, reject) => {
-      const registerPath = path.join(__dirname, '..', '..', 'scripts', 'discord', 'register-commands.sh');
-      
-      // Check if the script exists
-      if (!fs.existsSync(registerPath)) {
-        reject(new Error(`Command registration script not found at ${registerPath}`));
-        return;
-      }
-      
-      const register = spawn(registerPath, [], { 
+      // Use the npm script for registering commands
+      const register = spawn('npm', ['run', 'register-commands'], { 
         env,
         stdio: ['ignore', 'pipe', 'pipe'] 
       });

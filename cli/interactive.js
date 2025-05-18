@@ -5,10 +5,8 @@
 
 const inquirer = require('inquirer');
 const chalk = require('chalk');
-const { 
-  deployStack, 
-  undeployStack 
-} = require('./commands/deploy');
+const { execSync } = require('child_process');
+const { getConfig, saveConfig } = require('./utils/config');
 const { 
   startServer, 
   stopServer, 
@@ -24,7 +22,9 @@ const {
 const {
   createBackup,
   downloadBackup,
-  restoreBackup
+  restoreBackup,
+  listBackups: listBackupFiles, // alias to match our usage
+  rotateBackups
 } = require('./commands/backup');
 const {
   configureDiscord,
@@ -119,6 +119,111 @@ async function mainMenu() {
 /**
  * Server management submenu
  */
+/**
+ * Deploy infrastructure using CDK
+ */
+async function deployCdk() {
+  console.log(chalk.cyan('Deploying HuginBot infrastructure...'));
+  
+  // Ask if we should deploy all stacks or just one
+  const { deployTarget } = await inquirer.prompt([
+    {
+      type: 'list',
+      name: 'deployTarget',
+      message: 'What would you like to deploy?',
+      choices: [
+        { name: 'All Infrastructure', value: 'all' },
+        { name: 'Valheim Server Only', value: 'valheim' },
+        { name: 'Discord Bot Only', value: 'discord' }
+      ]
+    }
+  ]);
+
+  const { confirmDeploy } = await inquirer.prompt([
+    {
+      type: 'confirm',
+      name: 'confirmDeploy',
+      message: `Do you want to deploy ${deployTarget === 'all' ? 'all infrastructure' : deployTarget + ' stack'}?`,
+      default: true
+    }
+  ]);
+
+  if (!confirmDeploy) {
+    console.log(chalk.yellow('Deployment cancelled.'));
+    return;
+  }
+
+  try {
+    let command;
+    switch (deployTarget) {
+      case 'all':
+        command = 'npm run deploy:all';
+        break;
+      case 'valheim':
+        command = 'npm run deploy:valheim';
+        break;
+      case 'discord':
+        command = 'npm run deploy:discord';
+        break;
+    }
+
+    console.log(chalk.cyan(`Running: ${command}`));
+    execSync(command, { stdio: 'inherit' });
+    console.log(chalk.green('✅ Deployment completed successfully!'));
+  } catch (error) {
+    console.error(chalk.red('❌ Deployment failed:'), error.message);
+  }
+}
+
+/**
+ * Destroy infrastructure using CDK
+ */
+async function undeployCdk() {
+  console.log(chalk.red.bold('⚠️  WARNING: Undeploying Infrastructure'));
+  console.log(chalk.yellow('This will permanently delete all resources, including:'));
+  console.log('- EC2 instances running your Valheim server');
+  console.log('- S3 buckets containing your world backups');
+  console.log('- API Gateway endpoints for Discord integration');
+  console.log('- Lambda functions and other AWS resources\n');
+
+  const { confirmUndeploy } = await inquirer.prompt([
+    {
+      type: 'confirm',
+      name: 'confirmUndeploy',
+      message: 'Are you SURE you want to destroy all infrastructure?',
+      default: false
+    }
+  ]);
+
+  if (!confirmUndeploy) {
+    console.log(chalk.green('Undeploy cancelled.'));
+    return;
+  }
+
+  // Extra confirmation
+  const { finalConfirmation } = await inquirer.prompt([
+    {
+      type: 'confirm',
+      name: 'finalConfirmation',
+      message: chalk.red.bold('THIS IS YOUR FINAL WARNING: All data will be lost. Continue?'),
+      default: false
+    }
+  ]);
+
+  if (!finalConfirmation) {
+    console.log(chalk.green('Undeploy cancelled.'));
+    return;
+  }
+
+  try {
+    console.log(chalk.cyan('Running: npm run destroy:all'));
+    execSync('npm run destroy:all', { stdio: 'inherit' });
+    console.log(chalk.green('✅ Undeployment completed successfully!'));
+  } catch (error) {
+    console.error(chalk.red('❌ Undeployment failed:'), error.message);
+  }
+}
+
 async function serverMenu() {
   const { serverAction } = await inquirer.prompt([
     {
@@ -138,7 +243,7 @@ async function serverMenu() {
 
   switch (serverAction) {
     case 'deploy':
-      await deployStack();
+      await deployCdk();
       break;
     case 'start':
       await startServer();
@@ -150,7 +255,7 @@ async function serverMenu() {
       await getServerStatus();
       break;
     case 'undeploy':
-      await undeployStack();
+      await undeployCdk();
       break;
     case 'back':
       return;

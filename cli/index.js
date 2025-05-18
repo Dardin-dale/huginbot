@@ -20,7 +20,6 @@ const figlet = require('figlet');
 const { loadESMDependencies } = require('./utils/esm-loader');
 
 // Import command modules
-const deployCommands = require('./commands/deploy');
 const serverCommands = require('./commands/server');
 const worldsCommands = require('./commands/worlds');
 const backupCommands = require('./commands/backup');
@@ -84,7 +83,6 @@ async function initializeCLI() {
       .action(runSetupWizard);
 
     // Register command groups
-    deployCommands.register(program);
     serverCommands.register(program);
     worldsCommands.register(program);
     backupCommands.register(program);

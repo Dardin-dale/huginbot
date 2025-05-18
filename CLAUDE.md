@@ -84,6 +84,9 @@ HuginBot is a Valheim server management system that leverages AWS CDK for infras
 - Implement ephemeral messages for private responses
 - Leverage Discord components (buttons, select menus) for interactive features
 - Follow Discord rate limits and API best practices
+- Discord bot is deployed as part of the HuginBotStack (not as a separate EC2 instance)
+- The Docker container's built-in webhook functionality is used for notifications
+- Slash commands are registered using the `npm run register-commands` script
 
 ## World Management
 - World creation/deletion is CLI-only (admin function)

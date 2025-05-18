@@ -5,7 +5,7 @@
 
 const { SSM, ListParametersCommand } = require('@aws-sdk/client-ssm');
 const { STSClient, GetCallerIdentityCommand } = require('@aws-sdk/client-sts');
-const { fromIni } = require('@aws-sdk/credential-providers');
+const { fromIni, defaultProvider } = require('@aws-sdk/credential-provider-node');
 const { EC2 } = require('@aws-sdk/client-ec2');
 const { CloudFormation } = require('@aws-sdk/client-cloudformation');
 const { S3Client, ListObjectsV2Command, GetObjectCommand } = require('@aws-sdk/client-s3');
@@ -14,6 +14,7 @@ const ora = require('ora');
 const chalk = require('chalk');
 const fs = require('fs');
 const path = require('path');
+require('dotenv').config(); // Load .env file variables
 const { getConfig, saveConfig } = require('./config');
 
 /**
@@ -23,20 +24,11 @@ const { getConfig, saveConfig } = require('./config');
 function getAwsConfig() {
     const config = getConfig();
     const awsConfig = {
-        region: config.awsRegion || process.env.AWS_REGION || 'us-west-2'
+        region: process.env.AWS_REGION || config.awsRegion || 'us-west-2',
+        // Use defaultProvider which will check environment variables, 
+        // shared ini files, EC2/ECS credentials, and process.env
+        credentials: defaultProvider()
     };
-
-    const profile = config.awsProfile || process.env.AWS_PROFILE || 'default';
-
-    // Only add credentials if we have a specific profile
-    if (profile && profile !== 'default') {
-        try {
-            awsConfig.credentials = fromIni({ profile });
-        } catch (profileError) {
-            // If profile fails, AWS SDK will fall back to default credential chain
-            console.warn(chalk.yellow(`Could not load profile '${profile}', using default credentials`));
-        }
-    }
 
     return awsConfig;
 }

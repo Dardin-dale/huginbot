@@ -5,14 +5,13 @@
 
 const inquirer = require('inquirer');
 const chalk = require('chalk');
-const { spawn } = require('child_process');
+const { spawn, execSync } = require('child_process');
 const { loadESMDependencies } = require('./utils/esm-loader');
 const { 
   checkAwsCredentials, 
   setupAwsProfile 
 } = require('./utils/aws');
 const { saveConfig } = require('./utils/config');
-const { deployStack } = require('./commands/deploy');
 
 /**
  * Run the setup wizard
@@ -244,21 +243,28 @@ async function runSetupWizard() {
   
   if (deployNow) {
     console.log(chalk.cyan.bold('\n📋 Deploying Valheim Server...'));
-    await deployStack();
+    try {
+      console.log(chalk.cyan('Running: npm run deploy:all'));
+      execSync('npm run deploy:all', { stdio: 'inherit' });
+      console.log(chalk.green('✅ Deployment completed successfully!'));
+    } catch (error) {
+      console.error(chalk.red('❌ Deployment failed:'), error.message);
+    }
   } else {
     console.log(chalk.yellow('Deployment skipped. You can deploy later with:'));
-    console.log(chalk.cyan('huginbot deploy'));
+    console.log(chalk.cyan('npm run deploy:all'));
   }
   
   // Final instructions
   console.log(boxen(
     chalk.bold('🎮 HuginBot Setup Complete! 🎮\n\n') +
     'To manage your server, use the following commands:\n\n' +
-    `${chalk.cyan('huginbot interactive')} - Start interactive menu\n` +
-    `${chalk.cyan('huginbot server start')} - Start the server\n` +
-    `${chalk.cyan('huginbot server stop')} - Stop the server\n` +
-    `${chalk.cyan('huginbot server status')} - Check server status\n\n` +
-    'For more help, visit: https://github.com/yourusername/huginbot',
+    `${chalk.cyan('npm run cli:interactive')} - Start interactive menu\n` +
+    `${chalk.cyan('npm run server:start')} - Start the server\n` +
+    `${chalk.cyan('npm run server:stop')} - Stop the server\n` +
+    `${chalk.cyan('npm run server:status')} - Check server status\n` +
+    `${chalk.cyan('npm run deploy:all')} - Deploy all infrastructure\n\n` +
+    'Your configuration is stored in .env and ~/.huginbot/config.json',
     { padding: 1, margin: 1, borderStyle: 'round', borderColor: 'green' }
   ));
 }
