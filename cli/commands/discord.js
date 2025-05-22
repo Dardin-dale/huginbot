@@ -59,17 +59,29 @@ async function setupDiscord() {
     'This will guide you through the process of configuring your Discord bot for HuginBot.'
   ));
   
-  // Check for existing configuration
-  const hasExistingConfig = config.discord && 
+  // Check for existing configuration - prioritize .env variables
+  const hasEnvConfig = process.env.DISCORD_APP_ID && 
+    process.env.DISCORD_BOT_PUBLIC_KEY && 
+    process.env.DISCORD_BOT_SECRET_TOKEN;
+    
+  const hasConfigStoreConfig = config.discord && 
     config.discord.appId && 
     config.discord.publicKey && 
     config.discord.botToken;
   
+  const hasExistingConfig = hasEnvConfig || hasConfigStoreConfig;
+  
   if (hasExistingConfig) {
     console.log(chalk.green('\nExisting Discord configuration found:'));
-    console.log(`Application ID: ${config.discord.appId}`);
-    console.log(`Public Key: ${config.discord.publicKey.substring(0, 10)}...`);
-    console.log(`Bot Token: ${config.discord.botToken.substring(0, 5)}...`);
+    
+    // Show values from environment variables first, fall back to config store
+    const appId = process.env.DISCORD_APP_ID || (config.discord && config.discord.appId);
+    const publicKey = process.env.DISCORD_BOT_PUBLIC_KEY || (config.discord && config.discord.publicKey);
+    const botToken = process.env.DISCORD_BOT_SECRET_TOKEN || (config.discord && config.discord.botToken);
+    
+    console.log(`Application ID: ${appId}`);
+    console.log(`Public Key: ${publicKey.substring(0, 10)}...`);
+    console.log(`Bot Token: ${botToken.substring(0, 5)}...`);
     
     const { updateConfig } = await inquirer.prompt([
       {
@@ -114,21 +126,21 @@ async function setupDiscord() {
       type: 'input',
       name: 'appId',
       message: 'Enter Discord Application ID:',
-      default: config.discord?.appId || '',
+      default: process.env.DISCORD_APP_ID || config.discord?.appId || '',
       validate: (input) => /^\d+$/.test(input.trim()) ? true : 'Application ID should be a numeric value'
     },
     {
       type: 'input',
       name: 'publicKey',
       message: 'Enter Discord Public Key:',
-      default: config.discord?.publicKey || '',
+      default: process.env.DISCORD_BOT_PUBLIC_KEY || config.discord?.publicKey || '',
       validate: (input) => input.trim() !== '' ? true : 'Public key cannot be empty'
     },
     {
       type: 'password',
       name: 'botToken',
       message: 'Enter Discord Bot Token:',
-      default: config.discord?.botToken || '',
+      default: process.env.DISCORD_BOT_SECRET_TOKEN || config.discord?.botToken || '',
       validate: (input) => input.trim() !== '' ? true : 'Bot token cannot be empty'
     }
   ]);
@@ -149,7 +161,15 @@ async function setupDiscord() {
     }
   ]);
   
-  // Save configuration
+  // Save configuration to both .env file and config store
+  const { updateEnvVariable } = require('../utils/env-manager');
+  
+  // Update environment variables
+  updateEnvVariable('DISCORD_APP_ID', discordConfig.appId);
+  updateEnvVariable('DISCORD_BOT_PUBLIC_KEY', discordConfig.publicKey);
+  updateEnvVariable('DISCORD_BOT_SECRET_TOKEN', discordConfig.botToken);
+  
+  // Also save to config store for backwards compatibility
   const updatedConfig = {
     ...config,
     discord: {

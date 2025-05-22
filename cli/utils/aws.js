@@ -484,24 +484,40 @@ async function updateActiveWorld(worldConfig) {
         const ssm = getSSMClient();
         const paramName = '/huginbot/active-world';
 
+        // Clone the world config to avoid modifying the original
+        const worldConfigToStore = JSON.parse(JSON.stringify(worldConfig));
+
+        // Make sure overrides exist in the config
+        if (!worldConfigToStore.overrides) {
+            worldConfigToStore.overrides = {};
+        }
+
+        // Log the overrides for debugging
+        if (Object.keys(worldConfigToStore.overrides).length > 0) {
+            console.log(chalk.cyan('World overrides will be applied:'));
+            Object.entries(worldConfigToStore.overrides).forEach(([key, value]) => {
+                console.log(`  ${key}: ${value}`);
+            });
+        }
+
         await ssm.putParameter({
             Name: paramName,
-            Value: JSON.stringify(worldConfig),
+            Value: JSON.stringify(worldConfigToStore),
             Type: 'String',
             Overwrite: true
         });
 
         // Update local config as well
         const config = getConfig();
-        config.activeWorld = worldConfig.name;
+        config.activeWorld = worldConfigToStore.name;
         saveConfig(config);
 
         // Track the parameter
         const { trackParameter } = require('./parameter-tracker');
         trackParameter(
             paramName,
-            `Active world configuration for ${worldConfig.name}`,
-            `world:${worldConfig.name}`
+            `Active world configuration for ${worldConfigToStore.name}`,
+            `world:${worldConfigToStore.name}`
         );
 
         return true;

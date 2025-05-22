@@ -16,26 +16,59 @@ if (!fs.existsSync(configDir)) {
   fs.mkdirSync(configDir, { recursive: true });
 }
 
-// Parse WORLD_CONFIGURATIONS from .env if available
+// Parse world configurations from .env using indexed format
 function parseWorldsFromEnv() {
   const worldConfigs = [];
+  const worldCount = parseInt(process.env.WORLD_COUNT || '0', 10);
   
-  if (process.env.WORLD_CONFIGURATIONS) {
-    // Format is World1,123456789012345678,Midgard,password1;World2,876543210987654321,Asgard,password2
-    const worlds = process.env.WORLD_CONFIGURATIONS.split(';');
-    
-    worlds.forEach(worldString => {
-      const [name, discordServerId, worldName, serverPassword] = worldString.split(',');
-      if (name && worldName && serverPassword) {
-        worldConfigs.push({
-          name,
-          discordServerId,
-          worldName,
-          serverPassword,
-          adminIds: process.env.VALHEIM_ADMIN_IDS || ''
-        });
-      }
-    });
+  for (let i = 1; i <= worldCount; i++) {
+    if (process.env[`WORLD_${i}_NAME`] && process.env[`WORLD_${i}_WORLD_NAME`]) {
+      // Create the base world config
+      const worldConfig = {
+        // Basic properties (required)
+        name: process.env[`WORLD_${i}_NAME`],
+        worldName: process.env[`WORLD_${i}_WORLD_NAME`],
+        serverPassword: process.env[`WORLD_${i}_PASSWORD`] || 'valheim',
+        discordServerId: process.env[`WORLD_${i}_DISCORD_ID`] || '',
+        adminIds: process.env.VALHEIM_ADMIN_IDS || '',
+        
+        // Container overrides object to store all custom parameters
+        overrides: {}
+      };
+      
+      // Find all environment variables that match WORLD_<i>_* pattern
+      // and aren't one of the basic properties
+      const worldPrefix = `WORLD_${i}_`;
+      const basicProps = ['NAME', 'WORLD_NAME', 'PASSWORD', 'DISCORD_ID'];
+      
+      Object.keys(process.env).forEach(key => {
+        if (key.startsWith(worldPrefix)) {
+          // Extract the parameter name (everything after WORLD_<i>_)
+          const paramName = key.substring(worldPrefix.length);
+          
+          // Skip basic properties, we've already handled those
+          if (!basicProps.includes(paramName)) {
+            let value = process.env[key];
+            
+            // Parse booleans (true/false strings)
+            if (value.toLowerCase() === 'true') {
+              value = true;
+            } else if (value.toLowerCase() === 'false') {
+              value = false;
+            }
+            // Parse numbers
+            else if (!isNaN(value) && !isNaN(parseFloat(value))) {
+              value = parseFloat(value);
+            }
+            
+            // Store in overrides object using original parameter name
+            worldConfig.overrides[paramName] = value;
+          }
+        }
+      });
+      
+      worldConfigs.push(worldConfig);
+    }
   }
   
   return worldConfigs;
@@ -231,11 +264,10 @@ function getConfig() {
   }
   
   // Parse and override worlds configuration if present in .env
-  if (process.env.WORLD_CONFIGURATIONS) {
-    const newWorlds = parseWorldsFromEnv();
-    if (newWorlds.length > 0) {
-      configData.worlds = [...newWorlds];
-    }
+  // Check for either indexed format or legacy format
+  const newWorlds = parseWorldsFromEnv();
+  if (newWorlds.length > 0) {
+    configData.worlds = [...newWorlds];
   }
   
   return configData;

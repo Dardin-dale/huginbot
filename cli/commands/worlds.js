@@ -2,6 +2,7 @@
  * worlds.js - HuginBot CLI world management commands
  * 
  * Handles world creation, deletion, and configuration
+ * Updated to use indexed format from .env file
  */
 const inquirer = require('inquirer');
 const ora = require('ora');
@@ -16,6 +17,12 @@ const {
   getServerAddress,
   getActiveWorldFromSSM
 } = require('../utils/aws');
+const {
+  addWorldToEnv,
+  updateWorldInEnv,
+  removeWorldFromEnv,
+  updateEnvVariable
+} = require('../utils/env-manager');
 
 // Command group registration
 function register(program) {
@@ -97,17 +104,23 @@ async function listWorlds() {
   }
   
   // Header
-  console.log(`${chalk.bold('#')}  ${chalk.bold('Name'.padEnd(20))} ${chalk.bold('Valheim Name'.padEnd(15))} ${chalk.bold('Last Played')}`);
-  console.log('-'.repeat(60));
+  console.log(`${chalk.bold('#')}  ${chalk.bold('Name'.padEnd(20))} ${chalk.bold('Valheim Name'.padEnd(15))} ${chalk.bold('Last Played'.padEnd(15))} ${chalk.bold('Overrides')}`);
+  console.log('-'.repeat(75));
   
   config.worlds.forEach((world, index) => {
     const isActive = world.name === activeWorld;
     const prefix = isActive ? chalk.green('✓ ') : '  ';
     const worldName = isActive ? chalk.green(world.name.padEnd(20)) : world.name.padEnd(20);
     const valheimName = isActive ? chalk.green(world.worldName.padEnd(15)) : world.worldName.padEnd(15);
-    const lastPlayed = "Unknown"; // We'll implement this later
+    const lastPlayed = "Unknown".padEnd(15); // We'll implement this later
     
-    console.log(`${prefix}${index + 1}. ${worldName} ${valheimName} ${lastPlayed}`);
+    // Check if world has custom overrides
+    const hasOverrides = world.overrides && Object.keys(world.overrides).length > 0;
+    const overridesText = hasOverrides 
+      ? chalk.cyan(`${Object.keys(world.overrides).length} custom setting${Object.keys(world.overrides).length > 1 ? 's' : ''}`)
+      : chalk.gray('default');
+    
+    console.log(`${prefix}${index + 1}. ${worldName} ${valheimName} ${lastPlayed} ${overridesText}`);
   });
   
   console.log('');
@@ -126,6 +139,15 @@ async function showCurrentWorld() {
     const status = await getInstanceStatus();
     const address = status === 'running' ? await getServerAddress() : 'Server not running';
     
+    // Format overrides section if there are any
+    let overridesText = '';
+    if (currentWorld.overrides && Object.keys(currentWorld.overrides).length > 0) {
+      overridesText = '\n\n' + chalk.bold('🛠️ Server Overrides:') + '\n';
+      Object.entries(currentWorld.overrides).forEach(([key, value]) => {
+        overridesText += `${key}: ${chalk.cyan(value)}\n`;
+      });
+    }
+    
     console.log(boxen(
       chalk.bold(`🌍 Current Active World: ${chalk.green(currentWorld.name)} 🌍\n\n`) +
       `Valheim World Name: ${chalk.cyan(currentWorld.worldName)}\n` +
@@ -133,7 +155,8 @@ async function showCurrentWorld() {
       `Discord Server: ${chalk.cyan(currentWorld.discordServerId || 'None')}\n` +
       `Last Played: ${chalk.cyan(await getLastPlayedDate(currentWorld.name))}\n` +
       `Server Status: ${status === 'running' ? chalk.green('RUNNING') : chalk.yellow(status.toUpperCase())}\n` +
-      `Join Address: ${status === 'running' ? chalk.green(address) : chalk.gray('N/A')}`,
+      `Join Address: ${status === 'running' ? chalk.green(address) : chalk.gray('N/A')}` +
+      overridesText,
       { padding: 1, margin: 1, borderStyle: 'round', borderColor: 'green' }
     ));
     
@@ -153,7 +176,8 @@ async function addWorld() {
   console.log(chalk.cyan.bold('\n📋 Add New World:'));
   console.log('This will create a new world configuration. The world will not be active until you switch to it.');
   
-  const newWorld = await inquirer.prompt([
+  // Basic world configuration prompts
+  const basicPrompts = [
     {
       type: 'input',
       name: 'name',
@@ -205,14 +229,168 @@ async function addWorld() {
         const validIds = ids.every(id => /^\d+$/.test(id.trim()));
         return validIds ? true : 'Steam IDs should be numeric values';
       }
+    },
+    // Ask if user wants to configure advanced settings
+    {
+      type: 'expand',
+      name: 'configureAdvanced',
+      message: 'Configure advanced server settings?',
+      choices: [
+        { key: 'y', name: 'Yes', value: true },
+        { key: 'n', name: 'No (use defaults)', value: false }
+      ],
+      default: 1
     }
-  ]);
+  ];
   
-  config.worlds = config.worlds || [];
-  config.worlds.push(newWorld);
-  saveConfig(config);
+  // Get basic configuration
+  const basicConfig = await inquirer.prompt(basicPrompts);
   
-  console.log(chalk.green(`✅ World "${newWorld.name}" added successfully`));
+  // Initialize world object with basic properties
+  const newWorld = {
+    name: basicConfig.name,
+    worldName: basicConfig.worldName,
+    serverPassword: basicConfig.serverPassword,
+    discordServerId: basicConfig.discordServerId,
+    adminIds: basicConfig.adminIds,
+    overrides: {}
+  };
+  
+  // If user wants to configure advanced settings
+  if (basicConfig.configureAdvanced) {
+    console.log(chalk.cyan.bold('\n⚙️ Advanced Server Configuration:'));
+    console.log('Configure server-specific overrides for the Docker container.');
+    
+    // Common server arguments preset options
+    const serverArgsPresets = [
+      { name: 'Standard with crossplay (-crossplay)', value: '-crossplay' },
+      { name: 'Standard with crossplay and BepInEx (-crossplay -bepinex)', value: '-crossplay -bepinex' },
+      { name: 'Public server with BepInEx (-crossplay -bepinex -public 1)', value: '-crossplay -bepinex -public 1' },
+      { name: 'Custom (enter your own)', value: 'custom' }
+    ];
+    
+    // Advanced configuration prompts
+    const advancedPrompts = [
+      // Standard overrides
+      {
+        type: 'list',
+        name: 'serverArgsPreset',
+        message: 'Server arguments preset:',
+        choices: serverArgsPresets,
+        default: 1
+      },
+      {
+        type: 'input',
+        name: 'serverArgsCustom',
+        message: 'Enter custom server arguments:',
+        when: (answers) => answers.serverArgsPreset === 'custom',
+        validate: (input) => input.trim() !== '' ? true : 'Server arguments cannot be empty'
+      },
+      {
+        type: 'confirm',
+        name: 'bepInEx',
+        message: 'Enable BepInEx (mod support):',
+        default: true
+      },
+      {
+        type: 'confirm',
+        name: 'serverPublic',
+        message: 'Make server visible in community list:',
+        default: true
+      },
+      {
+        type: 'input',
+        name: 'updateInterval',
+        message: 'Update check interval (seconds):',
+        default: '900',
+        validate: (input) => /^\d+$/.test(input) ? true : 'Must be a number'
+      },
+      // Custom overrides
+      {
+        type: 'confirm',
+        name: 'addCustomOverrides',
+        message: 'Add custom container environment variables?',
+        default: false
+      }
+    ];
+    
+    const advancedConfig = await inquirer.prompt(advancedPrompts);
+    
+    // Process server arguments based on preset or custom input
+    const serverArgs = advancedConfig.serverArgsPreset === 'custom' 
+      ? advancedConfig.serverArgsCustom 
+      : advancedConfig.serverArgsPreset;
+    
+    // Add standard overrides to the overrides object
+    newWorld.overrides.SERVER_ARGS = serverArgs;
+    newWorld.overrides.BEPINEX = advancedConfig.bepInEx.toString();
+    newWorld.overrides.SERVER_PUBLIC = advancedConfig.serverPublic.toString();
+    newWorld.overrides.UPDATE_INTERVAL = advancedConfig.updateInterval;
+    
+    // Add custom overrides if requested
+    if (advancedConfig.addCustomOverrides) {
+      let addingCustomOverrides = true;
+      
+      while (addingCustomOverrides) {
+        const customOverride = await inquirer.prompt([
+          {
+            type: 'input',
+            name: 'key',
+            message: 'Environment variable name:',
+            validate: (input) => {
+              if (input.trim() === '') return 'Variable name cannot be empty';
+              if (['NAME', 'WORLD_NAME', 'PASSWORD', 'DISCORD_ID'].includes(input)) {
+                return 'This is a reserved variable name';
+              }
+              return true;
+            }
+          },
+          {
+            type: 'input',
+            name: 'value',
+            message: 'Value:',
+            validate: (input) => input.trim() !== '' ? true : 'Value cannot be empty'
+          },
+          {
+            type: 'confirm',
+            name: 'addAnother',
+            message: 'Add another custom override?',
+            default: false
+          }
+        ]);
+        
+        // Add to overrides
+        newWorld.overrides[customOverride.key] = customOverride.value;
+        
+        // Check if we should continue adding
+        addingCustomOverrides = customOverride.addAnother;
+      }
+    }
+    
+    // Show summary of configured overrides
+    console.log(chalk.cyan.bold('\n📋 Configured Overrides:'));
+    Object.entries(newWorld.overrides).forEach(([key, value]) => {
+      console.log(`  ${key}: ${value}`);
+    });
+  }
+  
+  // Add world to .env file using indexed format
+  const spinner = ora('Adding world to configuration...').start();
+  try {
+    // Add to .env file
+    const newIndex = addWorldToEnv(newWorld);
+    
+    // Also update in-memory config for backwards compatibility
+    config.worlds = config.worlds || [];
+    config.worlds.push(newWorld);
+    saveConfig(config);
+    
+    spinner.succeed(`World "${newWorld.name}" added as World #${newIndex}`);
+  } catch (error) {
+    spinner.fail('Failed to add world to configuration');
+    console.error(chalk.red('Error:'), error.message);
+    return;
+  }
   
   // Ask if the user wants to switch to this world
   const { switchToNew } = await inquirer.prompt([
@@ -272,7 +450,8 @@ async function editWorld(worldName) {
   
   console.log(chalk.cyan.bold(`\n📋 Editing World: ${world.name}`));
   
-  const editedWorld = await inquirer.prompt([
+  // Basic world configuration prompts
+  const basicPrompts = [
     {
       type: 'input',
       name: 'name',
@@ -329,13 +508,301 @@ async function editWorld(worldName) {
         const validIds = ids.every(id => /^\d+$/.test(id.trim()));
         return validIds ? true : 'Steam IDs should be numeric values';
       }
+    },
+    // Ask if user wants to configure advanced settings
+    {
+      type: 'expand',
+      name: 'configureAdvanced',
+      message: 'Edit advanced server settings?',
+      choices: [
+        { key: 'y', name: 'Yes', value: true },
+        { key: 'n', name: 'No (keep current settings)', value: false }
+      ],
+      default: 1
     }
-  ]);
+  ];
   
-  config.worlds[worldToEditIndex] = editedWorld;
-  saveConfig(config);
+  // Get basic configuration
+  const basicConfig = await inquirer.prompt(basicPrompts);
   
-  console.log(chalk.green(`✅ World "${editedWorld.name}" updated successfully`));
+  // Initialize world object with basic properties
+  const editedWorld = {
+    name: basicConfig.name,
+    worldName: basicConfig.worldName,
+    serverPassword: basicConfig.serverPassword,
+    discordServerId: basicConfig.discordServerId,
+    adminIds: basicConfig.adminIds,
+    overrides: world.overrides || {}
+  };
+  
+  // If user wants to configure advanced settings
+  if (basicConfig.configureAdvanced) {
+    console.log(chalk.cyan.bold('\n⚙️ Advanced Server Configuration:'));
+    console.log('Configure server-specific overrides for the Docker container.');
+    
+    // Common server arguments preset options
+    const serverArgsPresets = [
+      { name: 'Standard with crossplay (-crossplay)', value: '-crossplay' },
+      { name: 'Standard with crossplay and BepInEx (-crossplay -bepinex)', value: '-crossplay -bepinex' },
+      { name: 'Public server with BepInEx (-crossplay -bepinex -public 1)', value: '-crossplay -bepinex -public 1' },
+      { name: 'Custom (enter your own)', value: 'custom' }
+    ];
+    
+    // Show current overrides if they exist
+    if (world.overrides && Object.keys(world.overrides).length > 0) {
+      console.log(chalk.yellow('\nCurrent overrides:'));
+      Object.entries(world.overrides).forEach(([key, value]) => {
+        console.log(`  ${key}: ${value}`);
+      });
+    }
+    
+    // Determine default values
+    const currentServerArgs = world.overrides?.SERVER_ARGS || '-crossplay -bepinex';
+    const currentBepInEx = world.overrides?.BEPINEX === 'true' || true;
+    const currentServerPublic = world.overrides?.SERVER_PUBLIC === 'true' || true;
+    const currentUpdateInterval = world.overrides?.UPDATE_INTERVAL || '900';
+    
+    // Advanced configuration prompts
+    const advancedPrompts = [
+      // Standard overrides
+      {
+        type: 'list',
+        name: 'serverArgsOption',
+        message: 'Server arguments:',
+        choices: [
+          { name: 'Keep current setting', value: 'keep' },
+          ...serverArgsPresets
+        ],
+        default: 0
+      },
+      {
+        type: 'input',
+        name: 'serverArgsCustom',
+        message: 'Enter custom server arguments:',
+        when: (answers) => answers.serverArgsOption === 'custom',
+        validate: (input) => input.trim() !== '' ? true : 'Server arguments cannot be empty'
+      },
+      {
+        type: 'list',
+        name: 'bepInExOption',
+        message: 'BepInEx (mod support):',
+        choices: [
+          { name: 'Keep current setting', value: 'keep' },
+          { name: 'Enable', value: 'true' },
+          { name: 'Disable', value: 'false' }
+        ],
+        default: 0
+      },
+      {
+        type: 'list',
+        name: 'serverPublicOption',
+        message: 'Server visibility:',
+        choices: [
+          { name: 'Keep current setting', value: 'keep' },
+          { name: 'Public (visible in community list)', value: 'true' },
+          { name: 'Private (not visible in community list)', value: 'false' }
+        ],
+        default: 0
+      },
+      {
+        type: 'list',
+        name: 'updateIntervalOption',
+        message: 'Update check interval:',
+        choices: [
+          { name: 'Keep current setting', value: 'keep' },
+          { name: 'Change value', value: 'change' }
+        ],
+        default: 0
+      },
+      {
+        type: 'input',
+        name: 'updateIntervalValue',
+        message: 'Update check interval (seconds):',
+        default: currentUpdateInterval,
+        validate: (input) => /^\d+$/.test(input) ? true : 'Must be a number',
+        when: (answers) => answers.updateIntervalOption === 'change'
+      },
+      // Custom overrides
+      {
+        type: 'list',
+        name: 'customOverridesOption',
+        message: 'Custom container environment variables:',
+        choices: [
+          { name: 'Keep existing custom overrides', value: 'keep' },
+          { name: 'Edit custom overrides', value: 'edit' },
+          { name: 'Remove all custom overrides', value: 'remove' }
+        ],
+        default: 0,
+        when: () => {
+          // Get number of custom overrides (excluding standard ones)
+          const standardKeys = ['SERVER_ARGS', 'BEPINEX', 'SERVER_PUBLIC', 'UPDATE_INTERVAL'];
+          const customKeys = world.overrides ? Object.keys(world.overrides).filter(k => !standardKeys.includes(k)) : [];
+          return customKeys.length > 0;
+        }
+      },
+      {
+        type: 'confirm',
+        name: 'addCustomOverrides',
+        message: 'Add custom container environment variables?',
+        default: false,
+        when: (answers) => !answers.customOverridesOption || answers.customOverridesOption !== 'keep'
+      }
+    ];
+    
+    const advancedConfig = await inquirer.prompt(advancedPrompts);
+    
+    // Process server arguments
+    if (advancedConfig.serverArgsOption !== 'keep') {
+      const serverArgs = advancedConfig.serverArgsOption === 'custom' 
+        ? advancedConfig.serverArgsCustom 
+        : advancedConfig.serverArgsOption;
+      
+      editedWorld.overrides.SERVER_ARGS = serverArgs;
+    }
+    
+    // Process BepInEx setting
+    if (advancedConfig.bepInExOption !== 'keep') {
+      editedWorld.overrides.BEPINEX = advancedConfig.bepInExOption;
+    }
+    
+    // Process server visibility
+    if (advancedConfig.serverPublicOption !== 'keep') {
+      editedWorld.overrides.SERVER_PUBLIC = advancedConfig.serverPublicOption;
+    }
+    
+    // Process update interval
+    if (advancedConfig.updateIntervalOption !== 'keep') {
+      editedWorld.overrides.UPDATE_INTERVAL = advancedConfig.updateIntervalValue;
+    }
+    
+    // Handle custom overrides
+    if (advancedConfig.customOverridesOption === 'remove') {
+      // Remove all non-standard overrides
+      const standardKeys = ['SERVER_ARGS', 'BEPINEX', 'SERVER_PUBLIC', 'UPDATE_INTERVAL'];
+      Object.keys(editedWorld.overrides).forEach(key => {
+        if (!standardKeys.includes(key)) {
+          delete editedWorld.overrides[key];
+        }
+      });
+    } else if (advancedConfig.customOverridesOption === 'edit') {
+      // Edit existing custom overrides
+      const standardKeys = ['SERVER_ARGS', 'BEPINEX', 'SERVER_PUBLIC', 'UPDATE_INTERVAL'];
+      const customKeys = Object.keys(editedWorld.overrides).filter(k => !standardKeys.includes(k));
+      
+      for (const key of customKeys) {
+        const currentValue = editedWorld.overrides[key];
+        
+        const { action } = await inquirer.prompt([
+          {
+            type: 'list',
+            name: 'action',
+            message: `Override ${key} = ${currentValue}:`,
+            choices: [
+              { name: 'Keep', value: 'keep' },
+              { name: 'Edit', value: 'edit' },
+              { name: 'Remove', value: 'remove' }
+            ],
+            default: 0
+          }
+        ]);
+        
+        if (action === 'edit') {
+          const { newValue } = await inquirer.prompt([
+            {
+              type: 'input',
+              name: 'newValue',
+              message: `New value for ${key}:`,
+              default: currentValue,
+              validate: (input) => input.trim() !== '' ? true : 'Value cannot be empty'
+            }
+          ]);
+          
+          editedWorld.overrides[key] = newValue;
+        } else if (action === 'remove') {
+          delete editedWorld.overrides[key];
+        }
+      }
+    }
+    
+    // Add new custom overrides if requested
+    if (advancedConfig.addCustomOverrides) {
+      let addingCustomOverrides = true;
+      
+      while (addingCustomOverrides) {
+        const customOverride = await inquirer.prompt([
+          {
+            type: 'input',
+            name: 'key',
+            message: 'Environment variable name:',
+            validate: (input) => {
+              if (input.trim() === '') return 'Variable name cannot be empty';
+              if (['NAME', 'WORLD_NAME', 'PASSWORD', 'DISCORD_ID'].includes(input)) {
+                return 'This is a reserved variable name';
+              }
+              return true;
+            }
+          },
+          {
+            type: 'input',
+            name: 'value',
+            message: 'Value:',
+            validate: (input) => input.trim() !== '' ? true : 'Value cannot be empty'
+          },
+          {
+            type: 'confirm',
+            name: 'addAnother',
+            message: 'Add another custom override?',
+            default: false
+          }
+        ]);
+        
+        // Add to overrides
+        editedWorld.overrides[customOverride.key] = customOverride.value;
+        
+        // Check if we should continue adding
+        addingCustomOverrides = customOverride.addAnother;
+      }
+    }
+    
+    // Show summary of configured overrides
+    console.log(chalk.cyan.bold('\n📋 Updated Overrides:'));
+    Object.entries(editedWorld.overrides).forEach(([key, value]) => {
+      console.log(`  ${key}: ${value}`);
+    });
+  }
+  
+  // Update world in .env file
+  const spinner = ora('Updating world configuration...').start();
+  try {
+    // Find the world index in the environment variables
+    const worldCount = parseInt(process.env.WORLD_COUNT || '0', 10);
+    let envIndex = -1;
+    
+    for (let i = 1; i <= worldCount; i++) {
+      if (process.env[`WORLD_${i}_NAME`] === world.name) {
+        envIndex = i;
+        break;
+      }
+    }
+    
+    if (envIndex > 0) {
+      // Update in .env file
+      updateWorldInEnv(envIndex, editedWorld);
+    } else {
+      // Fallback: Add as new world if not found in indexed format
+      addWorldToEnv(editedWorld);
+    }
+    
+    // Also update in-memory config for backwards compatibility
+    config.worlds[worldToEditIndex] = editedWorld;
+    saveConfig(config);
+    
+    spinner.succeed(`World "${editedWorld.name}" updated successfully`);
+  } catch (error) {
+    spinner.fail('Failed to update world configuration');
+    console.error(chalk.red('Error:'), error.message);
+    return;
+  }
   
   // Check if this is the active world and ask if the user wants to update it
   try {
@@ -475,23 +942,48 @@ async function removeWorld(worldName) {
     }
   ]);
   
-  const removedWorld = config.worlds.splice(worldToRemoveIndex, 1)[0];
-  saveConfig(config);
-  
-  // Mark associated parameters as obsolete
-  const { markParameterObsolete } = require('../utils/parameter-tracker');
-  
-  // Mark Discord webhook parameter if there is one
-  if (removedWorld.discordServerId) {
-    markParameterObsolete(
-      `/huginbot/discord-webhook/${removedWorld.discordServerId}`,
-      `World ${removedWorld.name} with Discord server ${removedWorld.discordServerId} was removed`
-    );
+  // Remove world from .env file
+  const spinner = ora('Removing world from configuration...').start();
+  try {
+    // Find the world index in the environment variables
+    const worldCount = parseInt(process.env.WORLD_COUNT || '0', 10);
+    let envIndex = -1;
+    
+    for (let i = 1; i <= worldCount; i++) {
+      if (process.env[`WORLD_${i}_NAME`] === worldToRemove.name) {
+        envIndex = i;
+        break;
+      }
+    }
+    
+    if (envIndex > 0) {
+      // Remove from .env file and reindex
+      removeWorldFromEnv(envIndex);
+    }
+    
+    // Also update in-memory config for backwards compatibility
+    const removedWorld = config.worlds.splice(worldToRemoveIndex, 1)[0];
+    saveConfig(config);
+    
+    // Mark associated parameters as obsolete
+    const { markParameterObsolete } = require('../utils/parameter-tracker');
+    
+    // Mark Discord webhook parameter if there is one
+    if (removedWorld.discordServerId) {
+      markParameterObsolete(
+        `/huginbot/discord-webhook/${removedWorld.discordServerId}`,
+        `World ${removedWorld.name} with Discord server ${removedWorld.discordServerId} was removed`
+      );
+    }
+    
+    spinner.succeed(`World "${removedWorld.name}" removed successfully`);
+    console.log(chalk.yellow('Associated parameters have been marked as obsolete'));
+    console.log('They will be cleaned up automatically or you can run a manual cleanup');
+  } catch (error) {
+    spinner.fail('Failed to remove world from configuration');
+    console.error(chalk.red('Error:'), error.message);
+    return;
   }
-  
-  console.log(chalk.green(`✅ World "${removedWorld.name}" removed successfully`));
-  console.log(chalk.yellow('Associated parameters have been marked as obsolete'));
-  console.log('They will be cleaned up automatically or you can run a manual cleanup');
 }
 
 // Switch active world
@@ -604,9 +1096,13 @@ async function switchWorld(worldName) {
     await updateActiveWorld(selectedWorld);
     spinner.succeed('World configuration updated');
     
-    // Update local config
+    // Update local config and environment variables
     config.activeWorld = selectedWorld.name;
     saveConfig(config);
+    
+    // Also update VALHEIM_WORLD_NAME and VALHEIM_SERVER_PASSWORD in .env
+    updateEnvVariable('VALHEIM_WORLD_NAME', selectedWorld.worldName);
+    updateEnvVariable('VALHEIM_SERVER_PASSWORD', selectedWorld.serverPassword);
   } catch (error) {
     spinner.fail('Failed to update world configuration');
     console.error(chalk.red('Error:'), error.message);
