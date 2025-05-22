@@ -185,7 +185,7 @@ HuginBot will automatically recognize worlds in the `worlds/` directory and make
 
 ### Installing Mods
 
-HuginBot supports BepInEx mods through the llosche Docker container:
+HuginBot supports BepInEx mods through the lloesche Docker container:
 
 1. Place your mod files in the `mods/` directory:
    ```
@@ -200,6 +200,14 @@ HuginBot supports BepInEx mods through the llosche Docker container:
 2. During deployment, these mods will be installed in the BepInEx plugins directory
 
 The server automatically enables BepInEx for all installed mods.
+
+#### Performance Optimizations
+
+HuginBot implements several performance optimizations for the Valheim server:
+
+1. **Persistent Game Files**: Game files are stored in a persistent volume at `/opt/valheim` to avoid re-downloading the game on each container restart, significantly reducing startup time.
+
+2. **Process Prioritization**: The Docker container is given the `sys_nice` capability, allowing the server to better manage process priorities and improve performance under load.
 
 ### Discord Commands
 
@@ -335,6 +343,8 @@ To test locally without incurring AWS costs:
 ## Future Enhancements
 
 - [x] Add mod installation interface
+- [x] Implement performance optimizations (persistent game files, process prioritization)
+- [ ] Add world-specific mod isolation
 - [ ] Implement server monitoring and alerts
 - [ ] Add player statistics and tracking
 - [ ] Enhance Discord bot with more commands and features

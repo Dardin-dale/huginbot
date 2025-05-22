@@ -67,6 +67,15 @@ else
   SERVER_NAME=$(echo "$PARAM_VALUE" | jq -r '.name')
   SERVER_PASSWORD=$(echo "$PARAM_VALUE" | jq -r '.serverPassword')
   
+  # Extract overrides if present
+  if echo "$PARAM_VALUE" | jq -e '.overrides' > /dev/null 2>&1; then
+    echo "World-specific overrides found, will apply custom settings"
+    OVERRIDES_JSON=$(echo "$PARAM_VALUE" | jq -c '.overrides')
+  else
+    echo "No world-specific overrides found, using default settings"
+    OVERRIDES_JSON="{}"
+  fi
+  
   # Check if any required values are missing or null
   if [ "$WORLD_NAME" = "null" ] || [ -z "$WORLD_NAME" ]; then
     echo "ERROR: World name is missing or null in the configuration"
@@ -82,6 +91,41 @@ else
     echo "ERROR: Server password is missing or null in the configuration"
     exit 1
   fi
+  
+  # Extract override values with defaults
+  SERVER_ARGS=$(echo "$OVERRIDES_JSON" | jq -r '.SERVER_ARGS // "-crossplay -bepinex"')
+  BEPINEX=$(echo "$OVERRIDES_JSON" | jq -r '.BEPINEX // "true"')
+  SERVER_PUBLIC=$(echo "$OVERRIDES_JSON" | jq -r '.SERVER_PUBLIC // "true"')
+  UPDATE_INTERVAL=$(echo "$OVERRIDES_JSON" | jq -r '.UPDATE_INTERVAL // "900"')
+  
+  # For backward compatibility, also check top-level properties
+  if [ "$SERVER_ARGS" = "null" ]; then
+    SERVER_ARGS=$(echo "$PARAM_VALUE" | jq -r '.serverArgs // "-crossplay -bepinex"')
+    if [ "$SERVER_ARGS" = "null" ]; then 
+      SERVER_ARGS="-crossplay -bepinex"
+    fi
+  fi
+  
+  if [ "$BEPINEX" = "null" ]; then
+    BEPINEX=$(echo "$PARAM_VALUE" | jq -r '.bepInEx // "true"')
+    if [ "$BEPINEX" = "null" ]; then
+      BEPINEX="true"
+    fi
+  fi
+  
+  if [ "$SERVER_PUBLIC" = "null" ]; then
+    SERVER_PUBLIC=$(echo "$PARAM_VALUE" | jq -r '.serverPublic // "true"')
+    if [ "$SERVER_PUBLIC" = "null" ]; then
+      SERVER_PUBLIC="true"
+    fi
+  fi
+  
+  if [ "$UPDATE_INTERVAL" = "null" ]; then
+    UPDATE_INTERVAL=$(echo "$PARAM_VALUE" | jq -r '.updateInterval // "900"')
+    if [ "$UPDATE_INTERVAL" = "null" ]; then
+      UPDATE_INTERVAL="900"
+    fi
+  fi
 fi
 
 echo "Switching to world: $SERVER_NAME ($WORLD_NAME)"
@@ -93,7 +137,7 @@ if ! /usr/local/bin/backup-valheim.sh; then
 fi
 
 # Verify data directories exist
-for dir in "/mnt/valheim-data/config" "/mnt/valheim-data/backups" "/mnt/valheim-data/mods"; do
+for dir in "/mnt/valheim-data/config" "/mnt/valheim-data/backups" "/mnt/valheim-data/mods" "/mnt/valheim-data/opt-valheim"; do
   if [ ! -d "$dir" ]; then
     echo "Creating required directory: $dir"
     mkdir -p "$dir"
@@ -127,18 +171,62 @@ SERVER_NAME: $SERVER_NAME
 WORLD_NAME: $WORLD_NAME
 DISCORD_SERVER_ID: $DISCORD_SERVER_ID
 WEBHOOK_CONFIGURED: $([ -n "$WEBHOOK_ENV" ] && echo "Yes" || echo "No")
+
+# Server Overrides
+SERVER_ARGS: $SERVER_ARGS
+BEPINEX: $BEPINEX
+SERVER_PUBLIC: $SERVER_PUBLIC
+UPDATE_INTERVAL: $UPDATE_INTERVAL
 EOF
 
+# Add additional overrides to the config file if they exist
+if [ "$OVERRIDES_JSON" != "{}" ]; then
+  echo -e "\n# Additional Overrides" >> "/mnt/valheim-data/config/server_config.txt"
+  OVERRIDE_KEYS=$(echo "$OVERRIDES_JSON" | jq -r 'keys[]')
+  
+  for KEY in $OVERRIDE_KEYS; do
+    if [[ "$KEY" != "SERVER_ARGS" && "$KEY" != "BEPINEX" && "$KEY" != "SERVER_PUBLIC" && "$KEY" != "UPDATE_INTERVAL" ]]; then
+      VALUE=$(echo "$OVERRIDES_JSON" | jq -r ".[\"$KEY\"]")
+      echo "$KEY: $VALUE" >> "/mnt/valheim-data/config/server_config.txt"
+    fi
+  done
+fi
+
 echo "Starting Valheim server with world: $WORLD_NAME"
+echo "Using server arguments: $SERVER_ARGS"
+echo "BepInEx enabled: $BEPINEX"
+echo "Server public: $SERVER_PUBLIC"
+echo "Update interval: $UPDATE_INTERVAL"
+
+# Build environment variables for all overrides from the JSON
+OVERRIDE_ENV=""
+if [ "$OVERRIDES_JSON" != "{}" ]; then
+  echo "Applying world-specific overrides:"
+  # Extract all keys from the overrides JSON
+  OVERRIDE_KEYS=$(echo "$OVERRIDES_JSON" | jq -r 'keys[]')
+  
+  # Process each override key
+  for KEY in $OVERRIDE_KEYS; do
+    # Skip the ones we've already handled
+    if [[ "$KEY" != "SERVER_ARGS" && "$KEY" != "BEPINEX" && "$KEY" != "SERVER_PUBLIC" && "$KEY" != "UPDATE_INTERVAL" ]]; then
+      VALUE=$(echo "$OVERRIDES_JSON" | jq -r ".[\"$KEY\"]")
+      echo "  - Setting $KEY=$VALUE"
+      OVERRIDE_ENV="$OVERRIDE_ENV -e $KEY=\"$VALUE\" "
+    fi
+  done
+fi
+
 # Start the server with the new configuration
 # Note: We use eval for the webhook env variable to properly handle quotes
 SERVER_CMD="docker run -d --name valheim-server \
   -p 2456-2458:2456-2458/udp \
   -p 2456-2458:2456-2458/tcp \
   -p 80:80 \
+  --cap-add=sys_nice \
   -v /mnt/valheim-data/config:/config \
   -v /mnt/valheim-data/backups:/config/backups \
   -v /mnt/valheim-data/mods:/bepinex/plugins \
+  -v /mnt/valheim-data/opt-valheim:/opt/valheim \
   -e SERVER_NAME=\"$SERVER_NAME\" \
   -e WORLD_NAME=\"$WORLD_NAME\" \
   -e SERVER_PASS=\"$SERVER_PASSWORD\" \
@@ -151,12 +239,13 @@ SERVER_CMD="docker run -d --name valheim-server \
   -e CONFIG_DIRECTORY_PERMISSIONS=\"755\" \
   -e WORLDS_DIRECTORY_PERMISSIONS=\"755\" \
   -e WORLDS_FILE_PERMISSIONS=\"644\" \
-  -e SERVER_PUBLIC=\"true\" \
-  -e UPDATE_INTERVAL=\"900\" \
+  -e SERVER_PUBLIC=\"$SERVER_PUBLIC\" \
+  -e UPDATE_INTERVAL=\"$UPDATE_INTERVAL\" \
   -e STEAMCMD_ARGS=\"validate\" \
-  -e BEPINEX=\"true\" \
-  -e SERVER_ARGS=\"-crossplay -bepinex\" \
+  -e BEPINEX=\"$BEPINEX\" \
+  -e SERVER_ARGS=\"$SERVER_ARGS\" \
   $WEBHOOK_ENV \
+  $OVERRIDE_ENV \
   --restart unless-stopped \
   lloesche/valheim-server"
 
