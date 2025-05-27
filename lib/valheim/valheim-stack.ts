@@ -7,6 +7,7 @@ import {
     InstanceClass,
     InstanceSize,
     InstanceType,
+    IpAddresses,
     MachineImage,
     Peer,
     Port,
@@ -23,6 +24,7 @@ import {
     ServicePrincipal
 } from "aws-cdk-lib/aws-iam";
 import { Bucket } from "aws-cdk-lib/aws-s3";
+import { BucketDeployment, Source } from "aws-cdk-lib/aws-s3-deployment";
 import { Rule, Schedule } from "aws-cdk-lib/aws-events";
 import { LambdaFunction } from "aws-cdk-lib/aws-events-targets";
 import { Runtime } from "aws-cdk-lib/aws-lambda";
@@ -157,7 +159,7 @@ export class ValheimServerAwsCdkStack extends Stack {
 
         // Create VPC with a single public subnet
         this.vpc = new Vpc(this, "valheimVpc", {
-            cidr: "10.0.0.0/24",
+            ipAddresses: IpAddresses.cidr("10.0.0.0/24"),
             subnetConfiguration: [
                 {
                     cidrMask: 24,
@@ -186,6 +188,13 @@ export class ValheimServerAwsCdkStack extends Stack {
         this.backupBucket = new Bucket(this, "valheimBackupBucket", {
             versioned: true,
             removalPolicy: this.removalPolicy,
+        });
+
+        // Deploy scripts to S3 bucket for EC2 instance to download
+        new BucketDeployment(this, "ScriptDeployment", {
+            sources: [Source.asset("./scripts")],
+            destinationBucket: this.backupBucket,
+            destinationKeyPrefix: "scripts/",
         });
 
         // Create IAM role for EC2 instance
@@ -402,10 +411,8 @@ rm /tmp/valheim_backup_$timestamp.tar.gz
 EOF`,
             "chmod +x /usr/local/bin/backup-valheim.sh",
 
-            // Create world switching script
-            `cat > /usr/local/bin/switch-valheim-world.sh << 'EOF'
-${loadScript('valheim/switch-valheim-world.sh')}
-EOF`,
+            // Download world switching script from S3
+            `aws s3 cp s3://${this.backupBucket.bucketName}/scripts/switch-valheim-world.sh /usr/local/bin/switch-valheim-world.sh`,
             "chmod +x /usr/local/bin/switch-valheim-world.sh",
 
             // Install jq for JSON parsing
@@ -472,11 +479,9 @@ EOF`,
 
         dockerEnvVars.push(`SERVER_ARGS="${serverArgs.join(' ')}"`);
 
-        // Create PlayFab join code monitoring script
+        // Download PlayFab monitoring script from S3
         userData.addCommands(
-            `cat > /usr/local/bin/monitor-playfab.sh << 'EOF'
-${loadScript('valheim/monitor-playfab.sh')}
-EOF`,
+            `aws s3 cp s3://${this.backupBucket.bucketName}/scripts/monitor-playfab.sh /usr/local/bin/monitor-playfab.sh`,
             "chmod +x /usr/local/bin/monitor-playfab.sh",
 
             // Setup a systemd service for the monitoring script
@@ -495,10 +500,8 @@ RestartSec=10
 WantedBy=multi-user.target
 EOF`,
 
-            // Create player count monitoring script
-            `cat > /usr/local/bin/monitor-players.sh << 'EOF'
-${loadScript('valheim/monitor-players.sh')}
-EOF`,
+            // Download player monitoring script from S3
+            `aws s3 cp s3://${this.backupBucket.bucketName}/scripts/monitor-players.sh /usr/local/bin/monitor-players.sh`,
             "chmod +x /usr/local/bin/monitor-players.sh",
 
             // Setup systemd service for the player monitoring

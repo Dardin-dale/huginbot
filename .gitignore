@@ -27,3 +27,4 @@ cdk.out
 !/mods/.gitkeep
 
 **/.claude/settings.local.json
+cdk.out
