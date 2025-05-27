@@ -10,8 +10,7 @@ import {
     EndpointType
 } from "aws-cdk-lib/aws-apigateway";
 import {
-    Runtime,
-    LogRetention
+    Runtime
 } from "aws-cdk-lib/aws-lambda";
 import {
     NodejsFunction
@@ -31,7 +30,11 @@ import {
     StringParameter
 } from "aws-cdk-lib/aws-ssm";
 import {
-    RetentionDays
+    Secret
+} from "aws-cdk-lib/aws-secretsmanager";
+import {
+    RetentionDays,
+    LogGroup
 } from "aws-cdk-lib/aws-logs";
 import * as path from "path";
 import { Construct } from "constructs";
@@ -85,13 +88,22 @@ export class HuginbotStack extends Stack {
             description: "Authentication token for Discord integration",
         });
 
+        // Create Discord webhook secret
+        const webhookSecret = new Secret(this, "DiscordWebhookSecret", {
+            secretName: `/huginbot/discord-webhook${parameterSuffix}`,
+            description: "Discord webhook URL for HuginBot notifications",
+            secretStringValue: cdk.SecretValue.unsafePlainText(JSON.stringify({
+                url: props.discordWebhookUrl || "PLACEHOLDER_UPDATE_VIA_DISCORD_SETUP_COMMAND"
+            }))
+        });
+
         // Create Lambda common environment variables
         const lambdaEnv: { [key: string]: string } = {
             VALHEIM_INSTANCE_ID: props.valheimInstanceId,
             DISCORD_AUTH_TOKEN: discordAuthToken,
             BACKUP_BUCKET_NAME: process.env.BACKUP_BUCKET_NAME || '',
             WORLD_CONFIGURATIONS: process.env.WORLD_CONFIGURATIONS || '',
-            DISCORD_WEBHOOK_URL: props.discordWebhookUrl || '',
+            DISCORD_WEBHOOK_SECRET_NAME: webhookSecret.secretName,
         };
 
         // Remove empty values to avoid test issues
@@ -117,7 +129,7 @@ export class HuginbotStack extends Stack {
         });
         
         // Add CloudWatch log retention
-        new LogRetention(this, 'CommandsFunctionLogRetention', {
+        new LogGroup(this, 'CommandsFunctionLogGroup', {
             logGroupName: `/aws/lambda/${commandsFunction.functionName}`,
             retention: RetentionDays.ONE_DAY
         });
@@ -207,7 +219,18 @@ export class HuginbotStack extends Stack {
             ],
         });
         
+        // Grant Secrets Manager access to Lambda functions
+        const secretsManagerPolicy = new PolicyStatement({
+            actions: [
+                "secretsmanager:GetSecretValue",
+            ],
+            resources: [
+                webhookSecret.secretArn
+            ],
+        });
+        
         commandsFunction.addToRolePolicy(ssmParameterPolicy);
+        commandsFunction.addToRolePolicy(secretsManagerPolicy);
 
         // Create API Gateway
         const api = new RestApi(this, "HuginbotApi", {
@@ -237,7 +260,7 @@ export class HuginbotStack extends Stack {
         });
         
         // Add CloudWatch log retention for cleanup Lambda
-        new LogRetention(this, 'CleanupBackupsFunctionLogRetention', {
+        new LogGroup(this, 'CleanupBackupsFunctionLogGroup', {
             logGroupName: `/aws/lambda/${cleanupBackupsFunction.functionName}`,
             retention: RetentionDays.ONE_DAY
         });
@@ -255,6 +278,10 @@ export class HuginbotStack extends Stack {
             cleanupBackupsFunction.addToRolePolicy(s3DeletePolicy);
             cleanupBackupsFunction.addToRolePolicy(s3BackupPolicy); // Add list/get permissions too
         }
+        
+        // Add SSM and Secrets Manager permissions to cleanup function
+        cleanupBackupsFunction.addToRolePolicy(ssmParameterPolicy);
+        cleanupBackupsFunction.addToRolePolicy(secretsManagerPolicy);
         
         // Create CloudWatch Event Rule to trigger cleanup daily
         const cleanupSchedule = new Rule(this, 'DailyBackupCleanupRule', {

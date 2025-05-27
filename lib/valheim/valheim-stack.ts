@@ -1,3 +1,4 @@
+import * as cdk from "aws-cdk-lib";
 import { Annotations, CfnOutput, Duration, Stack, StackProps } from "aws-cdk-lib";
 import {
     BlockDeviceVolume,
@@ -28,6 +29,7 @@ import { Runtime } from "aws-cdk-lib/aws-lambda";
 import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
 import { Alarm, ComparisonOperator, Metric, TreatMissingData } from "aws-cdk-lib/aws-cloudwatch";
 import { StringParameter } from "aws-cdk-lib/aws-ssm";
+import { Secret } from "aws-cdk-lib/aws-secretsmanager";
 import { Construct } from "constructs";
 import * as path from "path";
 import { loadScript } from './script-loader';
@@ -646,19 +648,20 @@ EOF`,
     }
     
     /**
-     * Create an SSM Parameter for storing Discord webhook URL
-     * This parameter can be referenced by both the EC2 instance and Lambda functions
+     * Creates a Discord webhook secret in AWS Secrets Manager
+     * This secret can be updated via the Discord bot setup command
      * 
      * @param discordServerId The Discord server/guild ID associated with this webhook
-     * @param webhookUrl The Discord webhook URL
-     * @returns The created SSM Parameter
+     * @param webhookUrl The Discord webhook URL (or placeholder)
+     * @returns The created Secret
      */
-    private createDiscordWebhookParameter(discordServerId: string, webhookUrl: string): StringParameter {
-        return new StringParameter(this, `DiscordWebhookParam-${discordServerId}`, {
-            parameterName: `/huginbot/discord-webhook/${discordServerId}`,
-            stringValue: webhookUrl,
+    private createDiscordWebhookSecret(discordServerId: string, webhookUrl: string): Secret {
+        return new Secret(this, `DiscordWebhookSecret-${discordServerId}`, {
+            secretName: `/huginbot/discord-webhook/${discordServerId}`,
             description: "Discord webhook URL for HuginBot notifications",
-            type: StringParameter.Type.SECURE_STRING // Store as a secure string since it contains sensitive URL
+            secretStringValue: cdk.SecretValue.unsafePlainText(JSON.stringify({
+                url: webhookUrl || "PLACEHOLDER_UPDATE_VIA_DISCORD_SETUP_COMMAND"
+            }))
         });
     }
 }

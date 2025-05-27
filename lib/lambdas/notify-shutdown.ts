@@ -1,15 +1,55 @@
 import { EventBridgeEvent, Context } from 'aws-lambda';
 import { SSMClient, GetParameterCommand } from '@aws-sdk/client-ssm';
+import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import axios from 'axios';
 
 // Create AWS clients
 const ssmClient = new SSMClient();
+const secretsClient = new SecretsManagerClient();
 
 // SSM Parameter names
 const ACTIVE_WORLD_PARAM = '/huginbot/active-world';
 
-// Discord webhook URL (set via environment variable by CDK)
-const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL || '';
+// Discord webhook secret name (set via environment variable by CDK)
+const DISCORD_WEBHOOK_SECRET_NAME = process.env.DISCORD_WEBHOOK_SECRET_NAME || '';
+
+// Cache for webhook URL to avoid repeated API calls
+let cachedWebhookUrl: string | null = null;
+
+/**
+ * Get Discord webhook URL from Secrets Manager
+ */
+async function getWebhookUrl(): Promise<string> {
+  if (cachedWebhookUrl) {
+    return cachedWebhookUrl;
+  }
+  
+  if (!DISCORD_WEBHOOK_SECRET_NAME) {
+    throw new Error('DISCORD_WEBHOOK_SECRET_NAME environment variable not set');
+  }
+  
+  try {
+    const result = await secretsClient.send(new GetSecretValueCommand({
+      SecretId: DISCORD_WEBHOOK_SECRET_NAME
+    }));
+    
+    if (!result.SecretString) {
+      throw new Error('Secret value is empty');
+    }
+    
+    const secretObj = JSON.parse(result.SecretString);
+    cachedWebhookUrl = secretObj.url;
+    
+    if (!cachedWebhookUrl || cachedWebhookUrl.includes('PLACEHOLDER')) {
+      throw new Error('Webhook URL not configured - use Discord setup command first');
+    }
+    
+    return cachedWebhookUrl;
+  } catch (error) {
+    console.error('Failed to get webhook URL from Secrets Manager:', error);
+    throw error;
+  }
+}
 
 export async function handler(
   event: EventBridgeEvent<'Server.AutoShutdown', any>,
@@ -40,22 +80,8 @@ export async function handler(
       console.log('No active world parameter found, using default');
     }
     
-    // Get guild-specific webhook URL if available
-    let webhookUrl = DISCORD_WEBHOOK_URL;
-    if (event.detail.guildId) {
-      try {
-        const paramResult = await ssmClient.send(new GetParameterCommand({
-          Name: `/huginbot/discord-webhook/${event.detail.guildId}`,
-          WithDecryption: true
-        }));
-        
-        if (paramResult.Parameter?.Value) {
-          webhookUrl = paramResult.Parameter.Value;
-        }
-      } catch (err) {
-        console.log('No guild-specific webhook found, using default');
-      }
-    }
+    // Get webhook URL from Secrets Manager
+    const webhookUrl = await getWebhookUrl();
     
     // Calculate resources saved
     const resourcesSaved = idleMinutes ? (idleMinutes * 0.05).toFixed(2) : '0.00'; // Just an example metric

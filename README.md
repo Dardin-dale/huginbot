@@ -247,7 +247,13 @@ The project is designed to be cost-effective:
   - API Gateway: ~$1/month for typical usage
   - S3 Storage: ~$0.023 per GB/month for backups
   - CloudWatch: Basic monitoring included
+  - **AWS Secrets Manager**: ~$0.40/month per Discord webhook secret (secure webhook URL storage)
 - **Total Monthly Cost**: Around $5-20/month depending on usage
+
+**Security & Automation Costs:**
+- Discord webhook URLs are securely stored in AWS Secrets Manager
+- No manual parameter creation required - fully automated via CDK
+- Webhook URLs encrypted at rest and can be updated via Discord commands
 
 The EC2 instance automatically shuts down after 10 minutes of inactivity to minimize costs.
 
