@@ -330,6 +330,128 @@ async function runSetupWizard() {
     updateEnvVariable('DISCORD_BOT_SECRET_TOKEN', discordConfig.botToken);
     
     console.log(chalk.green('✅ Discord configuration saved to .env file'));
+    
+    // Register slash commands with Discord
+    const { registerCommands } = await inquirer.prompt([
+      {
+        type: 'confirm',
+        name: 'registerCommands',
+        message: 'Would you like to register slash commands with Discord now?',
+        default: true
+      }
+    ]);
+    
+    if (registerCommands) {
+      await registerDiscordCommands(discordConfig);
+    } else {
+      console.log(chalk.yellow('⚠️  Slash commands can be registered later with: npm run register-commands'));
+    }
+  }
+  
+  // Function to register Discord slash commands
+  async function registerDiscordCommands(config) {
+    try {
+      console.log(chalk.cyan('Registering Discord slash commands...'));
+      const spinner = ora('Registering commands with Discord API...').start();
+      
+      // Import Discord REST API
+      const { REST } = await loadESMDependencies().then(deps => deps.REST || require('@discordjs/rest'));
+      const { Routes } = require('discord-api-types/v9');
+      
+      // Define slash commands
+      const commands = [
+        {
+          name: 'start',
+          description: 'Start the Valheim server',
+          options: [
+            {
+              name: 'world',
+              description: 'Specific world to start (optional)',
+              type: 3, // STRING
+              required: false
+            }
+          ]
+        },
+        {
+          name: 'stop',
+          description: 'Stop the Valheim server'
+        },
+        {
+          name: 'status',
+          description: 'Check server status and get join code'
+        },
+        {
+          name: 'worlds',
+          description: 'Manage worlds',
+          options: [
+            {
+              name: 'list',
+              description: 'List available worlds',
+              type: 1 // SUB_COMMAND
+            }
+          ]
+        },
+        {
+          name: 'backup',
+          description: 'Manage server backups',
+          options: [
+            {
+              name: 'list',
+              description: 'List recent backups',
+              type: 1 // SUB_COMMAND
+            },
+            {
+              name: 'create',
+              description: 'Create a new backup',
+              type: 1 // SUB_COMMAND
+            }
+          ]
+        },
+        {
+          name: 'setup',
+          description: 'Setup server notifications for this channel (requires Manage Webhooks permission)'
+        },
+        {
+          name: 'hail',
+          description: 'Get wisdom from Hugin the raven'
+        },
+        {
+          name: 'help',
+          description: 'Show help and available commands'
+        }
+      ];
+      
+      // Setup REST API client
+      const rest = new REST({ version: '9' }).setToken(config.botToken);
+      
+      // Register commands globally
+      await rest.put(
+        Routes.applicationCommands(config.appId),
+        { body: commands }
+      );
+      
+      spinner.succeed('Slash commands registered successfully!');
+      console.log(chalk.green(`✅ Registered ${commands.length} slash commands with Discord`));
+      
+      // Show next steps
+      console.log(boxen(
+        chalk.bold('🎯 Discord Integration Setup Complete!\n\n') +
+        'Your slash commands are now registered with Discord.\n\n' +
+        chalk.cyan('Next steps:\n') +
+        '1. Deploy your infrastructure: npm run deploy:all\n' +
+        '2. In Discord, type "/" to see your new commands\n' +
+        '3. Use /setup in a Discord channel to configure notifications\n' +
+        '4. Use /start to launch your Valheim server\n\n' +
+        chalk.yellow('⚠️  Important: Make sure to set your Interactions Endpoint URL\n') +
+        'in the Discord Developer Portal to your API Gateway endpoint\n' +
+        'after deployment.',
+        { padding: 1, margin: 1, borderStyle: 'round', borderColor: 'green' }
+      ));
+      
+    } catch (error) {
+      console.error(chalk.red('❌ Failed to register Discord commands:'), error.message);
+      console.log(chalk.yellow('You can try again later with: npm run register-commands'));
+    }
   }
   
   // Step 6: Review and Save Configuration
@@ -449,6 +571,13 @@ async function runSetupWizard() {
     `${chalk.cyan('npm run cli -- server status')} - Check server status\n` +
     `${chalk.cyan('npm run cli -- worlds')} - Manage worlds\n` +
     `${chalk.cyan('npm run deploy:all')} - Deploy all infrastructure\n\n` +
+    (discordConfig.appId ? 
+      chalk.bold('Discord Integration Next Steps:\n') +
+      '1. Deploy infrastructure to get your API Gateway endpoint\n' +
+      '2. Go to Discord Developer Portal > General Information\n' +
+      '3. Set "Interactions Endpoint URL" to your API Gateway URL\n' +
+      '4. Use /setup in Discord to configure webhooks\n\n'
+      : '') +
     'Your configuration is now stored primarily in .env with runtime data in ~/.huginbot',
     { padding: 1, margin: 1, borderStyle: 'round', borderColor: 'green' }
   ));

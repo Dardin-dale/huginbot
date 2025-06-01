@@ -83,8 +83,8 @@ export async function validateWebhook(webhookUrl: string): Promise<WebhookValida
     console.error('Webhook validation error:', error);
     
     // Check for axios error with response
-    if (error.response) {
-      const status = error.response.status;
+    if (error && typeof error === 'object' && 'response' in error) {
+      const status = (error as any).response?.status;
       let message = `Webhook validation failed with status ${status}`;
       
       // Add more specific messages for common error codes
@@ -106,7 +106,7 @@ export async function validateWebhook(webhookUrl: string): Promise<WebhookValida
     // Network or other error
     return {
       isValid: false,
-      message: error.message || 'Unknown error validating webhook'
+      message: (error as any)?.message || 'Unknown error validating webhook'
     };
   }
 }

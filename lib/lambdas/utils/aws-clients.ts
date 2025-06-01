@@ -109,7 +109,8 @@ export async function getDetailedServerStatus(): Promise<{
     message: getStatusMessage(instanceStatus),
     isReady: false,
     isServerRunning: false,
-    launchTime: details.launchTime
+    launchTime: details.launchTime,
+    joinCode: undefined as string | undefined
   };
   
   // If instance isn't running, return early
