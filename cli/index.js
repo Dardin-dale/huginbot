@@ -23,8 +23,6 @@ const { loadESMDependencies } = require('./utils/esm-loader');
 const serverCommands = require('./commands/server');
 const worldsCommands = require('./commands/worlds');
 const backupCommands = require('./commands/backup');
-const discordCommands = require('./commands/discord');
-const testingCommands = require('./commands/testing');
 const cleanupCommands = require('./commands/cleanup');
 
 // Import wizard
@@ -86,8 +84,6 @@ async function initializeCLI() {
     serverCommands.register(program);
     worldsCommands.register(program);
     backupCommands.register(program);
-    discordCommands.register(program);
-    testingCommands.register(program);
     cleanupCommands.register(program);
 
     // Add interactive mode

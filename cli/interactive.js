@@ -26,14 +26,6 @@ const {
   listBackups: listBackupFiles, // alias to match our usage
   rotateBackups
 } = require('./commands/backup');
-const {
-  configureDiscord,
-  testDiscord
-} = require('./commands/discord');
-const {
-  configureLocalTesting,
-  startLocalTestServer
-} = require('./commands/testing');
 const { runSetupWizard } = require('./wizard');
 
 /**
@@ -56,14 +48,6 @@ async function mainMenu() {
     {
       name: `${chalk.magenta('💾')} Backup Management`,
       value: 'backup'
-    },
-    {
-      name: `${chalk.cyan('🤖')} Discord Integration`,
-      value: 'discord'
-    },
-    {
-      name: `${chalk.gray('🧪')} Local Testing`,
-      value: 'testing'
     },
     {
       name: `${chalk.red('⚙️')} Advanced Settings`,
@@ -97,12 +81,6 @@ async function mainMenu() {
       break;
     case 'backup':
       await backupMenu();
-      break;
-    case 'discord':
-      await discordMenu();
-      break;
-    case 'testing':
-      await testingMenu();
       break;
     case 'advanced':
       await advancedMenu();
@@ -168,8 +146,45 @@ async function deployCdk() {
     }
 
     console.log(chalk.cyan(`Running: ${command}`));
+    console.log(chalk.yellow('Deployment will take 10-15 minutes. Showing progress:\n'));
+    
     execSync(command, { stdio: 'inherit' });
-    console.log(chalk.green('✅ Deployment completed successfully!'));
+    
+    console.log(chalk.green('\n✅ Deployment completed successfully!'));
+    
+    // Show Discord endpoint if available
+    if (deployTarget === 'all' || deployTarget === 'discord') {
+      try {
+        console.log(chalk.cyan('Getting Discord endpoint URL from AWS...'));
+        const { execSync } = require('child_process');
+        const awsOutput = execSync('aws cloudformation describe-stacks --stack-name ValheimStack --query "Stacks[0].Outputs[?OutputKey==\'ApiEndpoint\'].OutputValue" --output text', { encoding: 'utf8' });
+        const apiGatewayUrl = awsOutput.trim();
+        
+        if (apiGatewayUrl && apiGatewayUrl !== 'None') {
+          // Remove trailing slash if present
+          const cleanUrl = apiGatewayUrl.endsWith('/') ? apiGatewayUrl.slice(0, -1) : apiGatewayUrl;
+          const discordEndpoint = `${cleanUrl}/valheim/control`;
+          
+          try {
+            const boxen = require('boxen');
+            console.log(boxen(
+              chalk.bold.blue('🔗 Discord Integration Endpoint:\n\n') +
+              chalk.cyan('Set this as your Interactions Endpoint URL in Discord Developer Portal:\n') +
+              chalk.white.bgBlue.bold(` ${discordEndpoint} `),
+              { padding: 1, margin: 1, borderStyle: 'round', borderColor: 'blue' }
+            ));
+          } catch (boxenError) {
+            // Fallback without boxen
+            console.log(chalk.bold.blue('\n🔗 Discord Integration Endpoint:'));
+            console.log(chalk.cyan('Set this as your Interactions Endpoint URL in Discord Developer Portal:'));
+            console.log(chalk.white.bgBlue.bold(` ${discordEndpoint} `));
+          }
+        }
+      } catch (outputError) {
+        // Ignore errors - deployment was successful but couldn't get URL
+        console.log(chalk.yellow('⚠️  Could not get Discord endpoint URL automatically.'));
+      }
+    }
   } catch (error) {
     console.error(chalk.red('❌ Deployment failed:'), error.message);
   }
@@ -323,12 +338,12 @@ async function backupMenu() {
       name: 'backupAction',
       message: 'Backup Management:',
       choices: [
-        { name: 'Create Backup', value: 'create' },
-        { name: 'Download Backup', value: 'download' },
-        { name: 'List Backups', value: 'list' },
-        { name: 'Rotate Backups (Clean Up Old)', value: 'rotate' },
-        { name: `Configure Backup Retention (Current: ${backupsToKeep})`, value: 'retention' },
-        { name: 'Restore Backup', value: 'restore' },
+        { name: '✅ Create Backup', value: 'create' },
+        { name: '✅ List Backups', value: 'list' },
+        { name: `✅ Configure Backup Retention (Current: ${backupsToKeep})`, value: 'retention' },
+        { name: '📝 Download Backup (Manual)', value: 'download' },
+        { name: '📝 Restore Backup (Manual Instructions)', value: 'restore' },
+        { name: '🔄 Rotate Backups (Automatic in AWS)', value: 'rotate' },
         { name: 'Back to Main Menu', value: 'back' }
       ]
     }
@@ -412,69 +427,7 @@ async function configureBackupRetention() {
   }
 }
 
-/**
- * Discord integration submenu
- */
-async function discordMenu() {
-  const { discordAction } = await inquirer.prompt([
-    {
-      type: 'list',
-      name: 'discordAction',
-      message: 'Discord Integration:',
-      choices: [
-        { name: 'Configure Discord Bot', value: 'configure' },
-        { name: 'Test Discord Connection', value: 'test' },
-        { name: 'Back to Main Menu', value: 'back' }
-      ]
-    }
-  ]);
 
-  switch (discordAction) {
-    case 'configure':
-      await configureDiscord();
-      break;
-    case 'test':
-      await testDiscord();
-      break;
-    case 'back':
-      return;
-  }
-
-  // Return to discord menu
-  await discordMenu();
-}
-
-/**
- * Testing tools submenu
- */
-async function testingMenu() {
-  const { testingAction } = await inquirer.prompt([
-    {
-      type: 'list',
-      name: 'testingAction',
-      message: 'Local Testing:',
-      choices: [
-        { name: 'Configure Local Testing', value: 'configure' },
-        { name: 'Start Local Test Server', value: 'start' },
-        { name: 'Back to Main Menu', value: 'back' }
-      ]
-    }
-  ]);
-
-  switch (testingAction) {
-    case 'configure':
-      await configureLocalTesting();
-      break;
-    case 'start':
-      await startLocalTestServer();
-      break;
-    case 'back':
-      return;
-  }
-
-  // Return to testing menu
-  await testingMenu();
-}
 
 /**
  * Advanced settings submenu
@@ -486,8 +439,8 @@ async function advancedMenu() {
       name: 'advancedAction',
       message: 'Advanced Settings:',
       choices: [
-        { name: 'Parameter Cleanup', value: 'cleanup' },
-        { name: 'AWS Region Configuration', value: 'aws' },
+        { name: '✅ Parameter Cleanup', value: 'cleanup' },
+        { name: '🚧 AWS Region Configuration (Coming Soon)', value: 'aws' },
         { name: 'Back to Main Menu', value: 'back' }
       ]
     }
@@ -503,7 +456,19 @@ async function advancedMenu() {
   }
 
   // Handle other advanced actions here
-  console.log(chalk.yellow('This feature is not yet implemented.'));
+  if (advancedAction === 'aws') {
+    console.log(boxen(
+      chalk.bold('🚧 AWS Region Configuration Coming Soon! 🚧\n\n') +
+      'This feature will allow you to:\n' +
+      '• Change your AWS region\n' +
+      '• Update AWS credentials\n' +
+      '• Configure multiple AWS profiles\n\n' +
+      chalk.cyan('Current workaround:\n') +
+      '• Update AWS_REGION in your .env file\n' +
+      '• Use aws configure for credentials',
+      { padding: 1, margin: 1, borderStyle: 'round', borderColor: 'yellow' }
+    ));
+  }
 
   // Return to advanced menu
   await advancedMenu();

@@ -35,6 +35,16 @@ import { Secret } from "aws-cdk-lib/aws-secretsmanager";
 import { Construct } from "constructs";
 import * as path from "path";
 import { loadScript } from './script-loader';
+import * as dotenv from 'dotenv';
+import {
+    RestApi,
+    LambdaIntegration,
+    EndpointType
+} from "aws-cdk-lib/aws-apigateway";
+import {
+    RetentionDays,
+    LogGroup
+} from "aws-cdk-lib/aws-logs";
 
 interface WorldConfig {
     /**
@@ -137,9 +147,13 @@ export class ValheimServerAwsCdkStack extends Stack {
     public readonly backupBucket: Bucket;
     public readonly backupSchedule?: string;
     public readonly idleAlarm: Alarm;
+    public readonly apiUrl: string;
 
     constructor(scope: Construct, id: string, props?: ValheimServerAwsCdkStackProps) {
         super(scope, id, props);
+        
+        // Load environment variables from .env file
+        dotenv.config();
 
         if (props?.worldBootstrapLocation && !props.worldResourcesBucket) {
             Annotations.of(this).addError("worldResourcesBucket must be set if worldBootstrapLocation is set!");
@@ -594,6 +608,165 @@ EOF`,
         // Add the Lambda as a target for the CloudWatch Event
         rule.addTarget(new LambdaFunction(backupCleanupFunction));
 
+        // ====== DISCORD INTEGRATION ======
+        
+        // Generate auth token for Discord integration
+        const discordAuthToken = this.generateRandomToken();
+        
+        // Use a unique parameter name based on stack ID to avoid conflicts in tests
+        const parameterSuffix = this.node.tryGetContext('testing') ? `-${this.node.id}` : '';
+
+        const authTokenParam = new StringParameter(this, "DiscordAuthToken", {
+            parameterName: `/huginbot/discord-auth-token${parameterSuffix}`,
+            stringValue: discordAuthToken,
+            description: "Authentication token for Discord integration",
+        });
+
+        // Create Discord webhook secret
+        const webhookSecret = new Secret(this, "DiscordWebhookSecret", {
+            secretName: `/huginbot/discord-webhook${parameterSuffix}`,
+            description: "Discord webhook URL for HuginBot notifications",
+            secretStringValue: cdk.SecretValue.unsafePlainText(JSON.stringify({
+                url: "PLACEHOLDER_UPDATE_VIA_DISCORD_SETUP_COMMAND"
+            }))
+        });
+
+        // Create Lambda common environment variables
+        const lambdaEnv: { [key: string]: string } = {
+            VALHEIM_INSTANCE_ID: this.ec2Instance.instanceId,
+            DISCORD_AUTH_TOKEN: discordAuthToken,
+            BACKUP_BUCKET_NAME: this.backupBucket.bucketName,
+            WORLD_CONFIGURATIONS: process.env.WORLD_CONFIGURATIONS || '',
+            DISCORD_WEBHOOK_SECRET_NAME: webhookSecret.secretName,
+            DISCORD_BOT_PUBLIC_KEY: process.env.DISCORD_BOT_PUBLIC_KEY || '',
+        };
+
+        // Remove empty values to avoid test issues
+        Object.keys(lambdaEnv).forEach(key => {
+            if (!lambdaEnv[key]) {
+                delete lambdaEnv[key];
+            }
+        });
+
+        // Common Lambda properties
+        const lambdaDefaultProps = {
+            runtime: Runtime.NODEJS_18_X,
+            timeout: Duration.seconds(10),
+            memorySize: 256,
+            environment: lambdaEnv,
+        };
+
+        // Create Discord Commands Lambda function
+        const commandsFunction = new NodejsFunction(this, "CommandsFunction", {
+            ...lambdaDefaultProps,
+            entry: "lib/lambdas/commands.ts",
+            handler: "handler",
+        });
+        
+        // Add CloudWatch log retention
+        new LogGroup(this, 'CommandsFunctionLogGroup', {
+            logGroupName: `/aws/lambda/${commandsFunction.functionName}`,
+            retention: RetentionDays.ONE_DAY
+        });
+
+        // Grant EC2 permissions to the Commands Lambda function
+        const ec2Policy = new PolicyStatement({
+            actions: [
+                "ec2:DescribeInstances",
+                "ec2:StartInstances",
+                "ec2:StopInstances",
+            ],
+            resources: [
+                `arn:aws:ec2:${this.region}:${this.account}:instance/${this.ec2Instance.instanceId}`
+            ],
+        });
+
+        // Add permission for SSM document - scoped to specific document and instance
+        const ssmDocumentPolicy = new PolicyStatement({
+            actions: [
+                "ssm:SendCommand",
+            ],
+            resources: [
+                `arn:aws:ssm:${this.region}:${this.account}:document/AWS-RunShellScript`,
+                `arn:aws:ec2:${this.region}:${this.account}:instance/${this.ec2Instance.instanceId}`
+            ]
+        });
+
+        // Add permission for SSM command invocation
+        const ssmCommandPolicy = new PolicyStatement({
+            actions: [
+                "ssm:GetCommandInvocation"
+            ],
+            resources: [
+                `arn:aws:ssm:${this.region}:${this.account}:*`
+            ]
+        });
+
+        // Add S3 backup policy for commands function
+        const s3BackupPolicy = new PolicyStatement({
+            actions: [
+                "s3:ListBucket",
+                "s3:GetObject"
+            ],
+            resources: [
+                this.backupBucket.bucketArn,
+                `${this.backupBucket.bucketArn}/worlds/*`
+            ]
+        });
+
+        commandsFunction.addToRolePolicy(ec2Policy);
+        commandsFunction.addToRolePolicy(ssmDocumentPolicy);
+        commandsFunction.addToRolePolicy(ssmCommandPolicy);
+        commandsFunction.addToRolePolicy(s3BackupPolicy);
+
+        // Grant SSM Parameter Store access to Lambda functions
+        const ssmParameterPolicy = new PolicyStatement({
+            actions: [
+                "ssm:GetParameter",
+            ],
+            resources: [
+                `arn:aws:ssm:${this.region}:${this.account}:parameter/huginbot/*`
+            ],
+        });
+        
+        // Grant Secrets Manager access to Lambda functions
+        const secretsManagerPolicy = new PolicyStatement({
+            actions: [
+                "secretsmanager:GetSecretValue",
+            ],
+            resources: [
+                webhookSecret.secretArn
+            ],
+        });
+        
+        commandsFunction.addToRolePolicy(ssmParameterPolicy);
+        commandsFunction.addToRolePolicy(secretsManagerPolicy);
+
+        // Update backup cleanup function with new permissions
+        backupCleanupFunction.addToRolePolicy(ssmParameterPolicy);
+        backupCleanupFunction.addToRolePolicy(secretsManagerPolicy);
+
+        // Create API Gateway
+        const api = new RestApi(this, "HuginbotApi", {
+            restApiName: "HuginBot Discord API",
+            description: "API for Discord bot to control Valheim server",
+            endpointTypes: [EndpointType.REGIONAL],
+        });
+
+        // Create API routes
+        const valheimResource = api.root.addResource("valheim");
+        const commandsResource = valheimResource.addResource("control");
+        commandsResource.addMethod("POST", new LambdaIntegration(commandsFunction));
+        
+        // Add CORS support for Discord
+        commandsResource.addCorsPreflight({
+            allowOrigins: ['https://discord.com'],
+            allowMethods: ['POST', 'OPTIONS'],
+            allowHeaders: ['Content-Type', 'X-Signature-Ed25519', 'X-Signature-Timestamp'],
+        });
+
+        this.apiUrl = api.url;
+
         // Create CloudWatch Alarm for player inactivity
         const playerCountMetric = new Metric({
             namespace: 'ValheimServer',
@@ -640,6 +813,19 @@ EOF`,
             description: "S3 bucket for Valheim server backups",
             exportName: "ValheimBackupBucket",
         });
+
+        // Discord integration outputs
+        new CfnOutput(this, "ApiEndpoint", {
+            value: api.url,
+            description: "API Endpoint for Discord bot integration",
+            exportName: `HuginbotApiEndpoint${parameterSuffix}`,
+        });
+
+        new CfnOutput(this, "AuthTokenOutput", {
+            value: discordAuthToken,
+            description: "Auth token for Discord integration",
+            exportName: `HuginbotDiscordAuthToken${parameterSuffix}`,
+        });
     }
 
     private get removalPolicy() {
@@ -648,6 +834,13 @@ EOF`,
             : this.node.tryGetContext("keep_resources") === true
                 ? undefined // Retain if explicitly requested
                 : undefined; // Default behavior (DESTROY would be safer for testing)
+    }
+
+    private generateRandomToken(): string {
+        // Use Node.js crypto module for cryptographically secure random token
+        const crypto = require('crypto');
+        // Generate 32 bytes (256 bits) of secure random data and convert to hex
+        return crypto.randomBytes(32).toString('hex');
     }
     
     /**

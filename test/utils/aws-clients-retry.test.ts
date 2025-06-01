@@ -37,7 +37,7 @@ describe('AWS Client Retry Logic Tests', () => {
     global.setTimeout = jest.fn((callback) => {
       callback();
       return {} as any;
-    });
+    }) as any;
     
     const result = await withRetry(mockOperation);
     
@@ -60,7 +60,7 @@ describe('AWS Client Retry Logic Tests', () => {
     global.setTimeout = jest.fn((callback) => {
       callback();
       return {} as any;
-    });
+    }) as any;
     
     await expect(withRetry(mockOperation, 3)).rejects.toThrow(mockError);
     expect(mockOperation).toHaveBeenCalledTimes(3);
@@ -80,7 +80,7 @@ describe('AWS Client Retry Logic Tests', () => {
     global.setTimeout = jest.fn((callback) => {
       callback();
       return {} as any;
-    });
+    }) as any;
     
     try {
       await withRetry(mockOperation, 5);
@@ -111,7 +111,7 @@ describe('AWS Client Retry Logic Tests', () => {
     // Mock setTimeout to capture delay values
     jest.useFakeTimers();
     const originalSetTimeout = global.setTimeout;
-    global.setTimeout = mockSetTimeout;
+    global.setTimeout = mockSetTimeout as any;
     
     await withRetry(mockOperation, 3, 100);
     

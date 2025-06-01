@@ -44,7 +44,7 @@ Select **"📋 Get Started (New User Guide)"** and follow the interactive wizard
 ### 3. Deploy to AWS
 
 ```bash
-npm run deploy:all
+npm run deploy
 ```
 
 This will create all necessary AWS resources (takes ~10-15 minutes).
@@ -150,10 +150,8 @@ npm run cli
 - **📋 Get Started** - First-time setup wizard
 - **🖥️ Server Management** - Start/stop server, check status
 - **🌍 World Management** - Add, edit, switch worlds
-- **💾 Backup Management** - View, download, restore backups
-- **🤖 Discord Integration** - Configure Discord settings
-- **🧪 Local Testing** - Test server locally
-- **⚙️ Advanced Settings** - AWS configuration, cleanup tools
+- **💾 Backup Management** - Create and manage backups
+- **⚙️ Advanced Settings** - Parameter cleanup and configuration
 
 ## 💰 Cost Breakdown
 
@@ -248,9 +246,8 @@ npm run cli → "Local Testing" → "Start Local Test Server"
 ### Deployment Commands
 
 ```bash
-npm run deploy:all     # Deploy everything
-npm run deploy:valheim # Deploy server stack only
-npm run deploy:discord # Deploy Discord stack only
+npm run deploy        # Deploy entire stack
+npm run deploy:all     # Same as deploy
 npm run destroy:all    # Remove all resources
 ```
 

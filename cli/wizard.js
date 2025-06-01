@@ -277,7 +277,7 @@ async function runSetupWizard() {
     console.log(chalk.yellow('To set up Discord integration, you need to:'));
     console.log('1. Create a Discord application at https://discord.com/developers/applications');
     console.log('2. Create a bot for your application');
-    console.log('3. Get the application ID, public key, and bot token');
+    console.log('3. Get the application ID, public key, and bot secret token');
     
     const { setupDiscord } = await inquirer.prompt([
       {
@@ -311,16 +311,16 @@ async function runSetupWizard() {
       {
         type: 'input',
         name: 'publicKey',
-        message: 'Enter Discord Public Key:',
+        message: 'Enter Discord Public Key (for request verification):',
         default: process.env.DISCORD_BOT_PUBLIC_KEY || (config.discord && config.discord.publicKey) || '',
         validate: (input) => input.trim() !== '' ? true : 'Public key cannot be empty'
       },
       {
         type: 'password',
         name: 'botToken',
-        message: 'Enter Discord Bot Token:',
+        message: 'Enter Discord Bot Secret Token:',
         default: process.env.DISCORD_BOT_SECRET_TOKEN || (config.discord && config.discord.botToken) || '',
-        validate: (input) => input.trim() !== '' ? true : 'Bot token cannot be empty'
+        validate: (input) => input.trim() !== '' ? true : 'Bot secret token cannot be empty'
       }
     ]);
     
@@ -344,7 +344,7 @@ async function runSetupWizard() {
     if (registerCommands) {
       await registerDiscordCommands(discordConfig);
     } else {
-      console.log(chalk.yellow('⚠️  Slash commands can be registered later with: npm run register-commands'));
+      console.log(chalk.yellow('⚠️  Slash commands can be registered later by running the setup wizard again'));
     }
   }
   
@@ -438,7 +438,7 @@ async function runSetupWizard() {
         chalk.bold('🎯 Discord Integration Setup Complete!\n\n') +
         'Your slash commands are now registered with Discord.\n\n' +
         chalk.cyan('Next steps:\n') +
-        '1. Deploy your infrastructure: npm run deploy:all\n' +
+        '1. Deploy your infrastructure: npm run deploy\n' +
         '2. In Discord, type "/" to see your new commands\n' +
         '3. Use /setup in a Discord channel to configure notifications\n' +
         '4. Use /start to launch your Valheim server\n\n' +
@@ -518,18 +518,60 @@ async function runSetupWizard() {
     }
   ]);
   
+  let apiGatewayUrl = null;
+  
   if (deployNow) {
     console.log(chalk.cyan.bold('\n📋 Deploying Valheim Server...'));
+    console.log(chalk.yellow('This will take about 10-15 minutes. Showing deployment progress:\n'));
+    
     try {
-      console.log(chalk.cyan('Running: npm run deploy:all'));
-      execSync('npm run deploy:all', { stdio: 'inherit' });
-      console.log(chalk.green('✅ Deployment completed successfully!'));
+      console.log(chalk.cyan('Running: npm run deploy\n'));
+      
+      // Show deployment output in real-time
+      const deployOutput = execSync('npm run deploy', { stdio: 'inherit', encoding: 'utf8' });
+      
+      console.log(chalk.green('\n✅ Deployment completed successfully!'));
+      
+      // Get the API Gateway URL directly from AWS
+      try {
+        console.log(chalk.cyan('Getting Discord endpoint URL from AWS...'));
+        const awsOutput = execSync('aws cloudformation describe-stacks --stack-name ValheimStack --query "Stacks[0].Outputs[?OutputKey==\'ApiEndpoint\'].OutputValue" --output text', { encoding: 'utf8' });
+        apiGatewayUrl = awsOutput.trim();
+        
+        if (apiGatewayUrl && apiGatewayUrl !== 'None') {
+          // Remove trailing slash if present
+          if (apiGatewayUrl.endsWith('/')) {
+            apiGatewayUrl = apiGatewayUrl.slice(0, -1);
+          }
+          
+          const discordEndpoint = `${apiGatewayUrl}/valheim/control`;
+          
+          console.log(boxen(
+            chalk.bold.green('🚀 Deployment Successful!\n\n') +
+            chalk.cyan('📡 Discord Integration Endpoint:\n') +
+            chalk.white.bgBlue.bold(` ${discordEndpoint} `) + '\n\n' +
+            chalk.yellow('⚠️  Type this URL exactly as shown (or select with mouse and copy)'),
+            { padding: 1, margin: 1, borderStyle: 'round', borderColor: 'green' }
+          ));
+        }
+      } catch (outputError) {
+        console.log(chalk.yellow('⚠️  Could not get API Gateway URL. Make sure AWS CLI is configured.'));
+        console.log(chalk.cyan('You can manually get it with:'));
+        console.log(chalk.white('aws cloudformation describe-stacks --stack-name ValheimStack --query "Stacks[0].Outputs[?OutputKey==\'ApiEndpoint\'].OutputValue" --output text'));
+        console.log(chalk.cyan('Then append "/valheim/control" to that URL.'));
+      }
+      
     } catch (error) {
-      console.error(chalk.red('❌ Deployment failed:'), error.message);
+      console.error(chalk.red('❌ Deployment failed:'));
+      console.error(error.message);
+      console.log(chalk.yellow('\nTroubleshooting tips:'));
+      console.log('• Check your AWS credentials: aws sts get-caller-identity');
+      console.log('• Verify your AWS region is set correctly');
+      console.log('• Check CloudFormation console for detailed error messages');
     }
   } else {
     console.log(chalk.yellow('Deployment skipped. You can deploy later with:'));
-    console.log(chalk.cyan('npm run deploy:all'));
+    console.log(chalk.cyan('npm run deploy'));
   }
   
   // Step 7: Optional Migration from Legacy Format
@@ -561,6 +603,52 @@ async function runSetupWizard() {
     }
   }
   
+  // Discord Developer Portal setup if Discord is configured
+  if (discordConfig.appId && apiGatewayUrl) {
+    console.log(chalk.cyan.bold('\n🎯 Discord Developer Portal Setup'));
+    
+    const discordPortalUrl = `https://discord.com/developers/applications/${discordConfig.appId}/information`;
+    const interactionsEndpoint = `${apiGatewayUrl}/valheim/control`;
+    
+    console.log(boxen(
+      chalk.bold('📋 Discord Setup Instructions:\n\n') +
+      chalk.cyan('1. Copy this Interactions Endpoint URL:\n') +
+      chalk.white.bgBlue.bold(` ${interactionsEndpoint} `) + '\n\n' +
+      chalk.cyan('2. Open Discord Developer Portal (will open automatically)\n') +
+      chalk.cyan('3. Navigate to "General Information"\n') +
+      chalk.cyan('4. Scroll down to "Interactions Endpoint URL"\n') +
+      chalk.cyan('5. Type or paste the URL above and save\n\n') +
+      chalk.yellow('⚠️  This endpoint URL is REQUIRED for Discord slash commands to work!\n') +
+      chalk.yellow('Without it, Discord commands will return "Application did not respond"'),
+      { padding: 1, margin: 1, borderStyle: 'round', borderColor: 'blue' }
+    ));
+    
+    // Display the URL clearly
+    console.log(chalk.white(interactionsEndpoint));
+    
+    const { openPortal } = await inquirer.prompt([
+      {
+        type: 'confirm',
+        name: 'openPortal',
+        message: 'Ready to open Discord Developer Portal?',
+        default: true
+      }
+    ]);
+    
+    if (openPortal) {
+      try {
+        await open(discordPortalUrl);
+        console.log(chalk.green('✅ Discord Developer Portal opened!'));
+        console.log(chalk.cyan('Remember to paste the Interactions Endpoint URL shown above.'));
+      } catch (error) {
+        console.log(chalk.yellow('⚠️  Could not open browser automatically.'));
+        console.log(chalk.cyan(`Please manually visit: ${discordPortalUrl}`));
+      }
+    } else {
+      console.log(chalk.cyan(`Portal URL: ${discordPortalUrl}`));
+    }
+  }
+  
   // Final instructions
   console.log(boxen(
     chalk.bold('🎮 HuginBot Setup Complete! 🎮\n\n') +
@@ -570,15 +658,21 @@ async function runSetupWizard() {
     `${chalk.cyan('npm run cli -- server stop')} - Stop the server\n` +
     `${chalk.cyan('npm run cli -- server status')} - Check server status\n` +
     `${chalk.cyan('npm run cli -- worlds')} - Manage worlds\n` +
-    `${chalk.cyan('npm run deploy:all')} - Deploy all infrastructure\n\n` +
-    (discordConfig.appId ? 
-      chalk.bold('Discord Integration Next Steps:\n') +
-      '1. Deploy infrastructure to get your API Gateway endpoint\n' +
-      '2. Go to Discord Developer Portal > General Information\n' +
-      '3. Set "Interactions Endpoint URL" to your API Gateway URL\n' +
+    `${chalk.cyan('npm run deploy')} - Deploy infrastructure\n\n` +
+    (discordConfig.appId && !apiGatewayUrl ? 
+      chalk.bold('🔗 Discord Integration Next Steps:\n') +
+      '1. Deploy infrastructure: npm run deploy\n' +
+      '2. Run setup wizard again to get your Discord endpoint URL\n' +
+      '3. Set "Interactions Endpoint URL" in Discord Developer Portal\n' +
       '4. Use /setup in Discord to configure webhooks\n\n'
+      : apiGatewayUrl && discordConfig.appId ?
+      chalk.bold('🎮 Discord Integration Ready!\n') +
+      `• Endpoint URL: ${apiGatewayUrl}/valheim/control\n` +
+      '• Set this as "Interactions Endpoint URL" in Discord Developer Portal\n' +
+      '• Use /setup in Discord to configure webhooks\n' +
+      '• Use /start to launch your server from Discord\n\n'
       : '') +
-    'Your configuration is now stored primarily in .env with runtime data in ~/.huginbot',
+    'Your configuration is stored in .env with runtime data in ~/.huginbot',
     { padding: 1, margin: 1, borderStyle: 'round', borderColor: 'green' }
   ));
 }

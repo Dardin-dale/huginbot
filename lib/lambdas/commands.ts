@@ -71,6 +71,9 @@ export async function handler(
 
     if (!signature || !timestamp || !publicKey) {
       console.error('Missing required headers for Discord verification');
+      console.error('Signature:', signature ? 'present' : 'missing');
+      console.error('Timestamp:', timestamp ? 'present' : 'missing');
+      console.error('Public Key:', publicKey ? 'present' : 'missing');
       return {
         statusCode: 401,
         body: JSON.stringify({ error: 'Unauthorized' }),
@@ -87,6 +90,10 @@ export async function handler(
 
     if (!isValidRequest) {
       console.error('Invalid request signature');
+      console.error('Body length:', (event.body || '').length);
+      console.error('Signature length:', signature.length);
+      console.error('Timestamp:', timestamp);
+      console.error('Public key length:', publicKey.length);
       return {
         statusCode: 401,
         body: JSON.stringify({ error: 'Invalid request signature' }),

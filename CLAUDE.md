@@ -19,9 +19,8 @@ HuginBot is a Valheim server management system that leverages AWS CDK for infras
 - Run specific tests with watch: `npm run test -- test/lambdas/status.test.ts --watch`
 - CLI: `npm run cli`
 - CDK: `npm run cdk`
-- Deploy all: `npm run deploy:all`
-- Deploy Valheim stack: `npm run deploy:valheim`
-- Deploy Discord bot stack: `npm run deploy:discord`
+- Deploy: `npm run deploy`
+- Deploy all: `npm run deploy:all` (same as deploy)
 - Clean up SSM parameters: `npm run cleanup`
 
 ## Environment Setup
@@ -84,7 +83,7 @@ HuginBot is a Valheim server management system that leverages AWS CDK for infras
 - Implement ephemeral messages for private responses
 - Leverage Discord components (buttons, select menus) for interactive features
 - Follow Discord rate limits and API best practices
-- Discord bot is deployed as part of the HuginBotStack (not as a separate EC2 instance)
+- Discord bot is deployed as part of the ValheimStack (consolidated with server infrastructure)
 - The Docker container's built-in webhook functionality is used for notifications
 - Slash commands are registered using the `npm run register-commands` script
 
@@ -125,7 +124,7 @@ HuginBot is a Valheim server management system that leverages AWS CDK for infras
 ## Deployment Workflow
 1. Run tests: `npm run test`
 2. Build project: `npm run build`
-3. Deploy infrastructure: `npm run deploy:all`
+3. Deploy infrastructure: `npm run deploy`
 4. Configure Discord webhooks: `/setup` command in Discord
 5. Test server operations
 
