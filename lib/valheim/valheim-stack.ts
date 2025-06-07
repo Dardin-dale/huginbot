@@ -756,7 +756,9 @@ EOF`,
         // Create API routes
         const valheimResource = api.root.addResource("valheim");
         const commandsResource = valheimResource.addResource("control");
-        commandsResource.addMethod("POST", new LambdaIntegration(commandsFunction));
+        commandsResource.addMethod("POST", new LambdaIntegration(commandsFunction, {
+            proxy: true,
+        }));
         
         // Add CORS support for Discord
         commandsResource.addCorsPreflight({

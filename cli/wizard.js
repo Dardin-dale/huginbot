@@ -269,6 +269,22 @@ async function runSetupWizard() {
         publicKey: process.env.DISCORD_BOT_PUBLIC_KEY || (config.discord && config.discord.publicKey) || '',
         botToken: process.env.DISCORD_BOT_SECRET_TOKEN || (config.discord && config.discord.botToken) || ''
       };
+      
+      // Ask if they want to register commands even if not updating config
+      const { registerCommands } = await inquirer.prompt([
+        {
+          type: 'confirm',
+          name: 'registerCommands',
+          message: 'Would you like to register/update Discord slash commands?',
+          default: true
+        }
+      ]);
+      
+      if (registerCommands && discordConfig.appId && discordConfig.botToken) {
+        await registerDiscordCommands(discordConfig);
+      } else if (registerCommands) {
+        console.log(chalk.yellow('⚠️  Discord configuration is incomplete. Please update Discord settings first.'));
+      }
     } else {
       // Proceed with Discord setup
       await setupDiscordConfig();
@@ -355,74 +371,15 @@ async function runSetupWizard() {
       const spinner = ora('Registering commands with Discord API...').start();
       
       // Import Discord REST API
-      const { REST } = await loadESMDependencies().then(deps => deps.REST || require('@discordjs/rest'));
-      const { Routes } = require('discord-api-types/v9');
+      const { REST } = require('@discordjs/rest');
+      const { Routes } = require('discord-api-types/v10');
+      const { DISCORD_COMMANDS } = require('../lib/discord-commands');
       
-      // Define slash commands
-      const commands = [
-        {
-          name: 'start',
-          description: 'Start the Valheim server',
-          options: [
-            {
-              name: 'world',
-              description: 'Specific world to start (optional)',
-              type: 3, // STRING
-              required: false
-            }
-          ]
-        },
-        {
-          name: 'stop',
-          description: 'Stop the Valheim server'
-        },
-        {
-          name: 'status',
-          description: 'Check server status and get join code'
-        },
-        {
-          name: 'worlds',
-          description: 'Manage worlds',
-          options: [
-            {
-              name: 'list',
-              description: 'List available worlds',
-              type: 1 // SUB_COMMAND
-            }
-          ]
-        },
-        {
-          name: 'backup',
-          description: 'Manage server backups',
-          options: [
-            {
-              name: 'list',
-              description: 'List recent backups',
-              type: 1 // SUB_COMMAND
-            },
-            {
-              name: 'create',
-              description: 'Create a new backup',
-              type: 1 // SUB_COMMAND
-            }
-          ]
-        },
-        {
-          name: 'setup',
-          description: 'Setup server notifications for this channel (requires Manage Webhooks permission)'
-        },
-        {
-          name: 'hail',
-          description: 'Get wisdom from Hugin the raven'
-        },
-        {
-          name: 'help',
-          description: 'Show help and available commands'
-        }
-      ];
+      // Use the shared command definitions
+      const commands = DISCORD_COMMANDS;
       
       // Setup REST API client
-      const rest = new REST({ version: '9' }).setToken(config.botToken);
+      const rest = new REST({ version: '10' }).setToken(config.botToken);
       
       // Register commands globally
       await rest.put(

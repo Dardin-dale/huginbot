@@ -20,7 +20,8 @@
         "server:stop": "node cli/index.js server stop",
         "server:status": "node cli/index.js server status",
         "backup:list": "node cli/index.js backup list",
-        "backup:create": "node cli/index.js backup create"
+        "backup:create": "node cli/index.js backup create",
+        "register-commands": "node register-commands.js"
     },
     "devDependencies": {
         "@types/aws-lambda": "^8.10.119",

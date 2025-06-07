@@ -76,27 +76,40 @@ export async function handler(
       console.error('Public Key:', publicKey ? 'present' : 'missing');
       return {
         statusCode: 401,
+        headers: {
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({ error: 'Unauthorized' }),
       };
     }
 
     // Verify the request is from Discord using the official discord-interactions package
-    const isValidRequest = verifyKey(
-      event.body || '',
-      signature,
-      timestamp,
-      publicKey
-    );
-
-    if (!isValidRequest) {
-      console.error('Invalid request signature');
-      console.error('Body length:', (event.body || '').length);
-      console.error('Signature length:', signature.length);
-      console.error('Timestamp:', timestamp);
-      console.error('Public key length:', publicKey.length);
+    try {
+      const isValidRequest = await verifyKey(
+        event.body || '',
+        signature,
+        timestamp,
+        publicKey
+      );
+      
+      if (!isValidRequest) {
+        console.error('Invalid request signature');
+        return {
+          statusCode: 401,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ error: 'Invalid request signature' }),
+        };
+      }
+    } catch (error) {
+      console.error('Error during signature verification:', error);
       return {
         statusCode: 401,
-        body: JSON.stringify({ error: 'Invalid request signature' }),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ error: 'Signature verification failed' }),
       };
     }
 
@@ -107,6 +120,9 @@ export async function handler(
       console.log('Received PING, responding with PONG');
       return {
         statusCode: 200,
+        headers: {
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({ type: InteractionResponseType.PONG }),
       };
     }
@@ -171,6 +187,9 @@ export async function handler(
 
     return {
       statusCode: 400,
+      headers: {
+        'Content-Type': 'application/json',
+      },
       body: JSON.stringify({ error: 'Unhandled interaction type' }),
     };
 
@@ -178,6 +197,9 @@ export async function handler(
     console.error("Error:", error);
     return {
       statusCode: 500,
+      headers: {
+        'Content-Type': 'application/json',
+      },
       body: JSON.stringify({ error: 'Internal server error' }),
     };
   }
