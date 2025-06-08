@@ -122,11 +122,14 @@ HuginBot is a Valheim server management system that leverages AWS CDK for infras
 - CLI-only backup restoration to prevent accidents
 
 ## Deployment Workflow
-1. Run tests: `npm run test`
-2. Build project: `npm run build`
-3. Deploy infrastructure: `npm run deploy`
-4. Configure Discord webhooks: `/setup` command in Discord
-5. Test server operations
+1. Source environment variables: `source .env` or `. .env`
+2. Run tests: `npm run test`
+3. Build project: `npm run build`
+4. Deploy infrastructure: `npm run deploy`
+5. Configure Discord webhooks: `/setup` command in Discord
+6. Test server operations
+
+**IMPORTANT**: Always source the `.env` file before deployment to ensure environment variables are available during CDK deployment.
 
 ## MVP Development Focus
 - Core server reliability (start/stop/status)

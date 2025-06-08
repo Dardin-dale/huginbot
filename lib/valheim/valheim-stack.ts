@@ -30,6 +30,9 @@ import { LambdaFunction } from "aws-cdk-lib/aws-events-targets";
 import { Runtime } from "aws-cdk-lib/aws-lambda";
 import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
 import { Alarm, ComparisonOperator, Metric, TreatMissingData } from "aws-cdk-lib/aws-cloudwatch";
+import { SnsAction } from "aws-cdk-lib/aws-cloudwatch-actions";
+import { Topic } from "aws-cdk-lib/aws-sns";
+import { LambdaSubscription } from "aws-cdk-lib/aws-sns-subscriptions";
 import { StringParameter } from "aws-cdk-lib/aws-ssm";
 import { Construct } from "constructs";
 import * as path from "path";
@@ -711,8 +714,8 @@ EOF`,
         commandsFunction.addToRolePolicy(ssmCommandPolicy);
         commandsFunction.addToRolePolicy(s3BackupPolicy);
 
-        // Grant SSM Parameter Store access to Lambda functions
-        const ssmParameterPolicy = new PolicyStatement({
+        // Grant SSM Parameter Store access to commands Lambda (full permissions)
+        const ssmCommandsPolicy = new PolicyStatement({
             actions: [
                 "ssm:GetParameter",
                 "ssm:GetParameters",
@@ -725,10 +728,20 @@ EOF`,
             ],
         });
         
-        commandsFunction.addToRolePolicy(ssmParameterPolicy);
+        commandsFunction.addToRolePolicy(ssmCommandsPolicy);
 
-        // Update backup cleanup function with new permissions
-        backupCleanupFunction.addToRolePolicy(ssmParameterPolicy);
+        // Grant limited SSM access to backup cleanup function (read-only)
+        const ssmBackupPolicy = new PolicyStatement({
+            actions: [
+                "ssm:GetParameter",
+                "ssm:GetParameters",
+            ],
+            resources: [
+                `arn:aws:ssm:${this.region}:${this.account}:parameter/huginbot/*`
+            ],
+        });
+        
+        backupCleanupFunction.addToRolePolicy(ssmBackupPolicy);
 
         // Create API Gateway
         const api = new RestApi(this, "HuginbotApi", {
@@ -764,6 +777,45 @@ EOF`,
             },
         });
 
+        // Create SNS topic for auto-shutdown notifications
+        const autoShutdownTopic = new Topic(this, 'AutoShutdownTopic', {
+            displayName: 'Valheim Auto-Shutdown Notifications',
+            topicName: 'valheim-auto-shutdown'
+        });
+
+        // Create auto-shutdown Lambda function
+        const autoShutdownFunction = new NodejsFunction(this, 'AutoShutdownFunction', {
+            ...lambdaDefaultProps,
+            entry: path.join(__dirname, '../lambdas/auto-shutdown.ts'),
+            handler: 'handler',
+            environment: {
+                ...lambdaEnv,
+                MIN_UPTIME_MINUTES: '10', // Grace period before allowing shutdown
+            },
+            timeout: Duration.minutes(2), // Longer timeout for EC2 operations
+        });
+
+        // Grant auto-shutdown Lambda permissions to stop EC2 and publish EventBridge events
+        autoShutdownFunction.addToRolePolicy(new PolicyStatement({
+            actions: [
+                'ec2:StopInstances',
+                'ec2:DescribeInstances'
+            ],
+            resources: [
+                `arn:aws:ec2:${this.region}:${this.account}:instance/${this.ec2Instance.instanceId}`
+            ]
+        }));
+
+        autoShutdownFunction.addToRolePolicy(new PolicyStatement({
+            actions: ['events:PutEvents'],
+            resources: [
+                `arn:aws:events:${this.region}:${this.account}:event-bus/default`
+            ]
+        }));
+
+        // Subscribe auto-shutdown Lambda to SNS topic
+        autoShutdownTopic.addSubscription(new LambdaSubscription(autoShutdownFunction));
+
         // Create an alarm that will trigger if player count is 0 for the specified duration
         this.idleAlarm = new Alarm(this, 'PlayerInactivityAlarm', {
             metric: playerCountMetric,
@@ -775,6 +827,42 @@ EOF`,
             alarmDescription: `Auto-shutdown Valheim server after ${idleThresholdMinutes} minutes of inactivity`,
         });
 
+        // Connect alarm to SNS topic
+        this.idleAlarm.addAlarmAction(new SnsAction(autoShutdownTopic));
+
+        // Create notify-shutdown Lambda function
+        const notifyShutdownFunction = new NodejsFunction(this, 'NotifyShutdownFunction', {
+            ...lambdaDefaultProps,
+            entry: path.join(__dirname, '../lambdas/notify-shutdown.ts'),
+            handler: 'handler',
+            timeout: Duration.seconds(30),
+        });
+
+        // Grant read-only SSM permissions to notify-shutdown Lambda
+        const ssmNotifyPolicy = new PolicyStatement({
+            actions: [
+                "ssm:GetParameter",
+                "ssm:GetParameters",
+            ],
+            resources: [
+                `arn:aws:ssm:${this.region}:${this.account}:parameter/huginbot/*`
+            ],
+        });
+        
+        notifyShutdownFunction.addToRolePolicy(ssmNotifyPolicy);
+
+        // Create EventBridge rule for auto-shutdown events
+        const shutdownEventRule = new Rule(this, 'ShutdownEventRule', {
+            eventPattern: {
+                source: ['huginbot.autoshutdown'],
+                detailType: ['Server.AutoShutdown']
+            },
+            description: 'Trigger Discord notification when server auto-shuts down'
+        });
+
+        // Connect EventBridge rule to notify-shutdown Lambda
+        shutdownEventRule.addTarget(new LambdaFunction(notifyShutdownFunction));
+
         // Outputs
         new CfnOutput(this, "InstanceId", {
             value: this.ec2Instance.instanceId,
@@ -783,14 +871,14 @@ EOF`,
         });
 
         new CfnOutput(this, "InstancePublicIP", {
-            value: this.ec2Instance.instancePublicIp,
-            description: "Public IP of the Valheim server",
+            value: "Get public IP with: aws ec2 describe-instances --instance-ids " + this.ec2Instance.instanceId + " --query 'Reservations[0].Instances[0].PublicIpAddress'",
+            description: "Command to get the Valheim server public IP",
             exportName: "ValheimServerPublicIP",
         });
 
         new CfnOutput(this, "ValheimConnectAddress", {
-            value: `${this.ec2Instance.instancePublicIp}:2456`,
-            description: "Address to connect to the Valheim server",
+            value: "Use the public IP from above command with port 2456",
+            description: "Address format to connect to the Valheim server",
             exportName: "ValheimConnectAddress",
         });
 
