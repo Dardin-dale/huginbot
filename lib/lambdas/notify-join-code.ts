@@ -1,55 +1,54 @@
 import { EventBridgeEvent, Context } from 'aws-lambda';
 import { SSMClient, GetParameterCommand } from '@aws-sdk/client-ssm';
-import { SecretsManagerClient, GetSecretValueCommand } from '@aws-sdk/client-secrets-manager';
 import axios from 'axios';
 
 // Create AWS clients
 const ssmClient = new SSMClient();
-const secretsClient = new SecretsManagerClient();
 
 // SSM Parameter names
 const PLAYFAB_JOIN_CODE_PARAM = '/huginbot/playfab-join-code';
 const ACTIVE_WORLD_PARAM = '/huginbot/active-world';
-
-// Discord webhook secret name (set via environment variable by CDK)
-const DISCORD_WEBHOOK_SECRET_NAME = process.env.DISCORD_WEBHOOK_SECRET_NAME || '';
-
-// Cache for webhook URL to avoid repeated API calls
-let cachedWebhookUrl: string | null = null;
+const DISCORD_WEBHOOK_BASE = '/huginbot/discord-webhook';
 
 /**
- * Get Discord webhook URL from Secrets Manager
+ * Get Discord webhook URL from SSM Parameter Store
+ * Cost-optimized: Uses free SSM parameters instead of Secrets Manager
  */
 async function getWebhookUrl(): Promise<string> {
-  if (cachedWebhookUrl) {
-    return cachedWebhookUrl;
-  }
-  
-  if (!DISCORD_WEBHOOK_SECRET_NAME) {
-    throw new Error('DISCORD_WEBHOOK_SECRET_NAME environment variable not set');
-  }
+  // First, try to get the guild ID from active world
+  let guildId: string | undefined;
   
   try {
-    const result = await secretsClient.send(new GetSecretValueCommand({
-      SecretId: DISCORD_WEBHOOK_SECRET_NAME
+    const activeWorldResult = await ssmClient.send(new GetParameterCommand({
+      Name: ACTIVE_WORLD_PARAM
     }));
     
-    if (!result.SecretString) {
-      throw new Error('Secret value is empty');
+    if (activeWorldResult.Parameter?.Value) {
+      const worldConfig = JSON.parse(activeWorldResult.Parameter.Value);
+      guildId = worldConfig.discordServerId;
     }
-    
-    const secretObj = JSON.parse(result.SecretString);
-    cachedWebhookUrl = secretObj.url;
-    
-    if (!cachedWebhookUrl || cachedWebhookUrl.includes('PLACEHOLDER')) {
-      throw new Error('Webhook URL not configured - use Discord setup command first');
-    }
-    
-    return cachedWebhookUrl;
-  } catch (error) {
-    console.error('Failed to get webhook URL from Secrets Manager:', error);
-    throw error;
+  } catch (err) {
+    console.log('No active world found, will try to find any configured webhook');
   }
+  
+  // If we have a guild ID, try to get its webhook
+  if (guildId) {
+    try {
+      const webhookResult = await ssmClient.send(new GetParameterCommand({
+        Name: `${DISCORD_WEBHOOK_BASE}/${guildId}`
+      }));
+      
+      if (webhookResult.Parameter?.Value) {
+        return webhookResult.Parameter.Value;
+      }
+    } catch (err) {
+      console.log(`No webhook found for guild ${guildId}`);
+    }
+  }
+  
+  // If no guild-specific webhook found, log warning and continue silently
+  console.warn('No webhook found for active world, notifications will not be sent');
+  throw new Error('No Discord webhook configured - use /setup command in Discord');
 }
 
 export async function handler(
@@ -140,13 +139,14 @@ export async function handler(
       ]
     };
 
-    // Get webhook URL from Secrets Manager
+    // Get webhook URL from SSM and send notification
     try {
       const webhookUrl = await getWebhookUrl();
       await axios.post(webhookUrl, message);
       console.log('Discord notification sent successfully');
     } catch (error) {
       console.error('Failed to send Discord notification:', error);
+      // Don't throw - we don't want to fail the whole Lambda just because Discord notification failed
     }
   } catch (error) {
     console.error('Error in notify-join-code handler:', error);

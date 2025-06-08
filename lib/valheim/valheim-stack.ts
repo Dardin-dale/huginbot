@@ -31,7 +31,6 @@ import { Runtime } from "aws-cdk-lib/aws-lambda";
 import { NodejsFunction } from "aws-cdk-lib/aws-lambda-nodejs";
 import { Alarm, ComparisonOperator, Metric, TreatMissingData } from "aws-cdk-lib/aws-cloudwatch";
 import { StringParameter } from "aws-cdk-lib/aws-ssm";
-import { Secret } from "aws-cdk-lib/aws-secretsmanager";
 import { Construct } from "constructs";
 import * as path from "path";
 import { loadScript } from './script-loader';
@@ -622,14 +621,8 @@ EOF`,
             description: "Authentication token for Discord integration",
         });
 
-        // Create Discord webhook secret
-        const webhookSecret = new Secret(this, "DiscordWebhookSecret", {
-            secretName: `/huginbot/discord-webhook${parameterSuffix}`,
-            description: "Discord webhook URL for HuginBot notifications",
-            secretStringValue: cdk.SecretValue.unsafePlainText(JSON.stringify({
-                url: "PLACEHOLDER_UPDATE_VIA_DISCORD_SETUP_COMMAND"
-            }))
-        });
+        // Note: Discord webhooks are now stored in SSM Parameter Store
+        // Use /setup command in Discord to configure webhooks per guild
 
         // Create Lambda common environment variables
         const lambdaEnv: { [key: string]: string } = {
@@ -637,7 +630,6 @@ EOF`,
             DISCORD_AUTH_TOKEN: discordAuthToken,
             BACKUP_BUCKET_NAME: this.backupBucket.bucketName,
             WORLD_CONFIGURATIONS: process.env.WORLD_CONFIGURATIONS || '',
-            DISCORD_WEBHOOK_SECRET_NAME: webhookSecret.secretName,
             DISCORD_BOT_PUBLIC_KEY: process.env.DISCORD_BOT_PUBLIC_KEY || '',
         };
 
@@ -723,28 +715,20 @@ EOF`,
         const ssmParameterPolicy = new PolicyStatement({
             actions: [
                 "ssm:GetParameter",
+                "ssm:GetParameters",
+                "ssm:PutParameter",  // For setup command
+                "ssm:DeleteParameter",  // For cleanup
+                "ssm:AddTagsToResource",  // For tagging parameters
             ],
             resources: [
                 `arn:aws:ssm:${this.region}:${this.account}:parameter/huginbot/*`
             ],
         });
         
-        // Grant Secrets Manager access to Lambda functions
-        const secretsManagerPolicy = new PolicyStatement({
-            actions: [
-                "secretsmanager:GetSecretValue",
-            ],
-            resources: [
-                webhookSecret.secretArn
-            ],
-        });
-        
         commandsFunction.addToRolePolicy(ssmParameterPolicy);
-        commandsFunction.addToRolePolicy(secretsManagerPolicy);
 
         // Update backup cleanup function with new permissions
         backupCleanupFunction.addToRolePolicy(ssmParameterPolicy);
-        backupCleanupFunction.addToRolePolicy(secretsManagerPolicy);
 
         // Create API Gateway
         const api = new RestApi(this, "HuginbotApi", {
@@ -845,21 +829,4 @@ EOF`,
         return crypto.randomBytes(32).toString('hex');
     }
     
-    /**
-     * Creates a Discord webhook secret in AWS Secrets Manager
-     * This secret can be updated via the Discord bot setup command
-     * 
-     * @param discordServerId The Discord server/guild ID associated with this webhook
-     * @param webhookUrl The Discord webhook URL (or placeholder)
-     * @returns The created Secret
-     */
-    private createDiscordWebhookSecret(discordServerId: string, webhookUrl: string): Secret {
-        return new Secret(this, `DiscordWebhookSecret-${discordServerId}`, {
-            secretName: `/huginbot/discord-webhook/${discordServerId}`,
-            description: "Discord webhook URL for HuginBot notifications",
-            secretStringValue: cdk.SecretValue.unsafePlainText(JSON.stringify({
-                url: webhookUrl || "PLACEHOLDER_UPDATE_VIA_DISCORD_SETUP_COMMAND"
-            }))
-        });
-    }
 }
