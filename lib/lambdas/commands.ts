@@ -60,6 +60,28 @@ const { verifyKey } = require('discord-interactions');
 // Import fetch for webhook testing (Node 18+ has built-in fetch)
 const fetch = globalThis.fetch;
 
+// Helper function to send follow-up messages
+async function sendFollowUpMessage(applicationId: string, token: string, content: any): Promise<void> {
+  const followUpUrl = `https://discord.com/api/v10/webhooks/${applicationId}/${token}`;
+  
+  try {
+    const response = await fetch(followUpUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(content),
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.text();
+      console.error('Failed to send follow-up message:', response.status, errorData);
+    }
+  } catch (error) {
+    console.error('Error sending follow-up message:', error);
+  }
+}
+
 export async function handler(
   event: APIGatewayProxyEvent, 
   context: Context
@@ -143,7 +165,7 @@ export async function handler(
     
     // Handle slash commands
     if (body.type === InteractionType.APPLICATION_COMMAND) {
-      const { data, guild_id } = body;
+      const { data, guild_id, application_id, token } = body;
       const command = data.name;
 
       console.log(`Processing command: ${command}`);
@@ -152,14 +174,14 @@ export async function handler(
         case 'start':
           const worldName = data.options?.find((opt: any) => opt.name === 'world')?.value;
           if (worldName) {
-            return await handleStartCommand(worldName, guild_id);
+            return await handleStartCommand(worldName, guild_id, application_id, token);
           } else {
-            return await handleStartCommand(undefined, guild_id);
+            return await handleStartCommand(undefined, guild_id, application_id, token);
           }
         case 'stop':
-          return await handleStopCommand();
+          return await handleStopCommand(application_id, token);
         case 'status':
-          return await handleStatusCommand();
+          return await handleStatusCommand(application_id, token);
         case 'worlds':
           return await handleWorldsCommand(data, guild_id);
         case 'backup':
@@ -209,33 +231,47 @@ export async function handler(
 }
 
 // Discord-compatible command handlers
-async function handleStartCommand(worldName?: string, guildId?: string): Promise<APIGatewayProxyResult> {
+async function handleStartCommand(worldName?: string, guildId?: string, applicationId?: string, token?: string): Promise<APIGatewayProxyResult> {
+  // Send deferred response immediately
+  const deferredResponse = {
+    statusCode: 200,
+    body: JSON.stringify({
+      type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
+    }),
+  };
+
+  // Perform the actual work asynchronously
+  if (applicationId && token) {
+    handleStartCommandAsync(worldName, guildId, applicationId, token).catch(error => {
+      console.error('Error in handleStartCommandAsync:', error);
+    });
+  }
+
+  return deferredResponse;
+}
+
+async function handleStartCommandAsync(worldName?: string, guildId?: string, applicationId?: string, token?: string): Promise<void> {
+  if (!applicationId || !token) {
+    console.error('Missing applicationId or token for follow-up message');
+    return;
+  }
+
   try {
     // Check instance status
     const status = await getInstanceStatus();
     
     if (status === 'running') {
-      return {
-        statusCode: 200,
-        body: JSON.stringify({
-          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-          data: {
-            content: '✅ Server is already running!',
-          },
-        }),
-      };
+      await sendFollowUpMessage(applicationId, token, {
+        content: '✅ Server is already running!',
+      });
+      return;
     }
 
     if (status === 'pending') {
-      return {
-        statusCode: 200,
-        body: JSON.stringify({
-          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-          data: {
-            content: '🚀 Server is already starting!',
-          },
-        }),
-      };
+      await sendFollowUpMessage(applicationId, token, {
+        content: '🚀 Server is already starting!',
+      });
+      return;
     }
 
     // Handle world configuration 
@@ -249,15 +285,10 @@ async function handleStartCommand(worldName?: string, guildId?: string): Promise
       );
       
       if (!selectedWorldConfig) {
-        return {
-          statusCode: 200,
-          body: JSON.stringify({
-            type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-            data: {
-              content: `❌ World "${worldName}" not found. Use /worlds list to see available worlds.`,
-            },
-          }),
-        };
+        await sendFollowUpMessage(applicationId, token, {
+          content: `❌ World "${worldName}" not found. Use /worlds list to see available worlds.`,
+        });
+        return;
       }
     } else if (guildId) {
       // Find worlds for this Discord server
@@ -273,15 +304,10 @@ async function handleStartCommand(worldName?: string, guildId?: string): Promise
       // Validate and set active world
       const validationErrors = validateWorldConfig(selectedWorldConfig);
       if (validationErrors.length > 0) {
-        return {
-          statusCode: 200,
-          body: JSON.stringify({
-            type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-            data: {
-              content: `❌ Invalid world configuration: ${validationErrors.join(', ')}`,
-            },
-          }),
-        };
+        await sendFollowUpMessage(applicationId, token, {
+          content: `❌ Invalid world configuration: ${validationErrors.join(', ')}`,
+        });
+        return;
       }
       
       await withRetry(() => 
@@ -312,108 +338,112 @@ async function handleStartCommand(worldName?: string, guildId?: string): Promise
 
     const displayWorldName = selectedWorldConfig ? selectedWorldConfig.name : undefined;
 
-    return {
-      statusCode: 200,
-      body: JSON.stringify({
-        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-        data: {
-          content: '🚀 Starting Valheim server... This may take 5-10 minutes.',
-          embeds: [{
-            title: 'Server Starting',
-            description: 'The server is being started. You\'ll receive a notification when it\'s ready.',
-            color: 0xffaa00,
-            fields: displayWorldName ? [{
-              name: 'World',
-              value: displayWorldName,
-              inline: true,
-            }] : [],
-            footer: {
-              text: 'HuginBot • Valheim Server Manager'
-            },
-            timestamp: new Date().toISOString(),
-          }],
+    await sendFollowUpMessage(applicationId, token, {
+      content: '🚀 Starting Valheim server... This may take 5-10 minutes.',
+      embeds: [{
+        title: 'Server Starting',
+        description: 'The server is being started. You\'ll receive a notification when it\'s ready.',
+        color: 0xffaa00,
+        fields: displayWorldName ? [{
+          name: 'World',
+          value: displayWorldName,
+          inline: true,
+        }] : [],
+        footer: {
+          text: 'HuginBot • Valheim Server Manager'
         },
-      }),
-    };
+        timestamp: new Date().toISOString(),
+      }],
+    });
   } catch (error) {
     console.error('Error starting server:', error);
-    return {
-      statusCode: 200,
-      body: JSON.stringify({
-        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-        data: {
-          content: '❌ Failed to start server. Please try again later.',
-        },
-      }),
-    };
+    await sendFollowUpMessage(applicationId, token, {
+      content: '❌ Failed to start server. Please try again later.',
+    });
   }
 }
 
-async function handleStopCommand(): Promise<APIGatewayProxyResult> {
+async function handleStopCommand(applicationId?: string, token?: string): Promise<APIGatewayProxyResult> {
+  // Send deferred response immediately
+  const deferredResponse = {
+    statusCode: 200,
+    body: JSON.stringify({
+      type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
+    }),
+  };
+
+  // Perform the actual work asynchronously
+  if (applicationId && token) {
+    handleStopCommandAsync(applicationId, token).catch(error => {
+      console.error('Error in handleStopCommandAsync:', error);
+    });
+  }
+
+  return deferredResponse;
+}
+
+async function handleStopCommandAsync(applicationId: string, token: string): Promise<void> {
   try {
     const status = await getInstanceStatus();
     
     if (status === 'stopped') {
-      return {
-        statusCode: 200,
-        body: JSON.stringify({
-          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-          data: {
-            content: '❌ Server is already stopped.',
-          },
-        }),
-      };
+      await sendFollowUpMessage(applicationId, token, {
+        content: '❌ Server is already stopped.',
+      });
+      return;
     }
 
     if (status === 'stopping') {
-      return {
-        statusCode: 200,
-        body: JSON.stringify({
-          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-          data: {
-            content: '🛑 Server is already stopping.',
-          },
-        }),
-      };
+      await sendFollowUpMessage(applicationId, token, {
+        content: '🛑 Server is already stopping.',
+      });
+      return;
     }
 
     await withRetry(() => ec2Client.send(new StopInstancesCommand({
       InstanceIds: [VALHEIM_INSTANCE_ID]
     })));
 
-    return {
-      statusCode: 200,
-      body: JSON.stringify({
-        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-        data: {
-          content: '🛑 Stopping Valheim server...',
-          embeds: [{
-            title: 'Server Stopping',
-            description: 'The server is being shut down. Make sure to save your progress!',
-            color: 0xff0000,
-            footer: {
-              text: 'HuginBot • Valheim Server Manager'
-            },
-            timestamp: new Date().toISOString(),
-          }],
+    await sendFollowUpMessage(applicationId, token, {
+      content: '🛑 Stopping Valheim server...',
+      embeds: [{
+        title: 'Server Stopping',
+        description: 'The server is being shut down. Make sure to save your progress!',
+        color: 0xff0000,
+        footer: {
+          text: 'HuginBot • Valheim Server Manager'
         },
-      }),
-    };
+        timestamp: new Date().toISOString(),
+      }],
+    });
   } catch (error) {
     console.error('Error stopping server:', error);
-    return {
-      statusCode: 200,
-      body: JSON.stringify({
-        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-        data: {
-          content: '❌ Failed to stop server. Please try again later.',
-        },
-      }),
-    };
+    await sendFollowUpMessage(applicationId, token, {
+      content: '❌ Failed to stop server. Please try again later.',
+    });
   }
 }
 
-async function handleStatusCommand(): Promise<APIGatewayProxyResult> {
+async function handleStatusCommand(applicationId?: string, token?: string): Promise<APIGatewayProxyResult> {
+  // Send deferred response immediately
+  const deferredResponse = {
+    statusCode: 200,
+    body: JSON.stringify({
+      type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
+    }),
+  };
+
+  // Perform the actual work asynchronously
+  if (applicationId && token) {
+    handleStatusCommandAsync(applicationId, token).catch(error => {
+      console.error('Error in handleStatusCommandAsync:', error);
+    });
+  }
+
+  return deferredResponse;
+}
+
+async function handleStatusCommandAsync(applicationId: string, token: string): Promise<void> {
   try {
     const { 
       status, 
@@ -455,45 +485,33 @@ async function handleStatusCommand(): Promise<APIGatewayProxyResult> {
       });
     }
 
-    return {
-      statusCode: 200,
-      body: JSON.stringify({
-        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-        data: {
-          embeds: [{
-            title: 'Valheim Server Status',
-            description: message,
-            color: status === 'running' ? 0x00ff00 : status === 'stopped' ? 0xff0000 : 0xffaa00,
-            fields: fields,
-            footer: {
-              text: 'HuginBot • Use /start to launch the server'
-            },
-            timestamp: new Date().toISOString(),
-          }],
-          components: [{
-            type: 1,
-            components: [{
-              type: 2,
-              style: 2,
-              label: "Refresh Status",
-              custom_id: "status_refresh",
-              emoji: { name: "🔄" }
-            }]
-          }]
+    await sendFollowUpMessage(applicationId, token, {
+      embeds: [{
+        title: 'Valheim Server Status',
+        description: message,
+        color: status === 'running' ? 0x00ff00 : status === 'stopped' ? 0xff0000 : 0xffaa00,
+        fields: fields,
+        footer: {
+          text: 'HuginBot • Use /start to launch the server'
         },
-      }),
-    };
+        timestamp: new Date().toISOString(),
+      }],
+      components: [{
+        type: 1,
+        components: [{
+          type: 2,
+          style: 2,
+          label: "Refresh Status",
+          custom_id: "status_refresh",
+          emoji: { name: "🔄" }
+        }]
+      }]
+    });
   } catch (error) {
     console.error('Error checking status:', error);
-    return {
-      statusCode: 200,
-      body: JSON.stringify({
-        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-        data: {
-          content: '❌ Failed to check server status.',
-        },
-      }),
-    };
+    await sendFollowUpMessage(applicationId, token, {
+      content: '❌ Failed to check server status.',
+    });
   }
 }
 
@@ -750,7 +768,7 @@ async function handleHelpCommand(): Promise<APIGatewayProxyResult> {
 async function handleSetupCommand(interaction: any): Promise<APIGatewayProxyResult> {
   const { guild_id, channel_id, member, application_id, token } = interaction;
 
-  // Check if user has permissions (manage webhooks)
+  // Check if user has permissions (manage webhooks) - do this immediately
   const permissions = BigInt(member.permissions);
   const MANAGE_WEBHOOKS = BigInt(1 << 29);
   
@@ -766,6 +784,24 @@ async function handleSetupCommand(interaction: any): Promise<APIGatewayProxyResu
       }),
     };
   }
+
+  // Send deferred response immediately after permission check
+  const deferredResponse = {
+    statusCode: 200,
+    body: JSON.stringify({
+      type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
+    }),
+  };
+
+  // Perform the actual work asynchronously
+  handleSetupCommandAsync(guild_id, channel_id, application_id, token).catch(error => {
+    console.error('Error in handleSetupCommandAsync:', error);
+  });
+
+  return deferredResponse;
+}
+
+async function handleSetupCommandAsync(guild_id: string, channel_id: string, application_id: string, token: string): Promise<void> {
 
   try {
     // Check if a webhook already exists for this guild
@@ -796,28 +832,23 @@ async function handleSetupCommand(interaction: any): Promise<APIGatewayProxyResu
         });
 
         if (testResponse.ok) {
-          return {
-            statusCode: 200,
-            body: JSON.stringify({
-              type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-              data: {
-                content: '✅ This server already has notifications configured!',
-                embeds: [{
-                  title: '📢 Notifications Active',
-                  description: 'HuginBot is already set up to send notifications to this channel.',
-                  color: 0x00ff00,
-                  fields: [{
-                    name: 'Need to change channels?',
-                    value: 'Delete the webhook in this channel\'s settings and run `/setup` in the new channel.',
-                    inline: false
-                  }],
-                  footer: {
-                    text: 'HuginBot • Ready for Adventure'
-                  }
-                }],
-              },
-            }),
-          };
+          await sendFollowUpMessage(application_id, token, {
+            content: '✅ This server already has notifications configured!',
+            embeds: [{
+              title: '📢 Notifications Active',
+              description: 'HuginBot is already set up to send notifications to this channel.',
+              color: 0x00ff00,
+              fields: [{
+                name: 'Need to change channels?',
+                value: 'Delete the webhook in this channel\'s settings and run `/setup` in the new channel.',
+                inline: false
+              }],
+              footer: {
+                text: 'HuginBot • Ready for Adventure'
+              }
+            }],
+          });
+          return;
         }
       } catch (err) {
         console.log('Existing webhook is no longer valid, creating new one');
@@ -835,16 +866,11 @@ async function handleSetupCommand(interaction: any): Promise<APIGatewayProxyResu
     
     if (!botToken) {
       console.error('DISCORD_BOT_TOKEN not configured');
-      return {
-        statusCode: 200,
-        body: JSON.stringify({
-          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-          data: {
-            content: '❌ Bot configuration error: Missing bot token. Please contact the administrator.',
-            flags: 64,
-          },
-        }),
-      };
+      await sendFollowUpMessage(application_id, token, {
+        content: '❌ Bot configuration error: Missing bot token. Please contact the administrator.',
+        flags: 64,
+      });
+      return;
     }
 
     const createResponse = await fetch(createWebhookUrl, {
@@ -865,16 +891,11 @@ async function handleSetupCommand(interaction: any): Promise<APIGatewayProxyResu
       
       // Check if it's a permissions issue
       if (createResponse.status === 403) {
-        return {
-          statusCode: 200,
-          body: JSON.stringify({
-            type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-            data: {
-              content: '❌ I don\'t have permission to create webhooks in this channel. Please ensure I have the "Manage Webhooks" permission.',
-              flags: 64,
-            },
-          }),
-        };
+        await sendFollowUpMessage(application_id, token, {
+          content: '❌ I don\'t have permission to create webhooks in this channel. Please ensure I have the "Manage Webhooks" permission.',
+          flags: 64,
+        });
+        return;
       }
       
       throw new Error(`Failed to create webhook: ${errorData.message || 'Unknown error'}`);
@@ -925,57 +946,46 @@ async function handleSetupCommand(interaction: any): Promise<APIGatewayProxyResu
       }),
     });
 
-    return {
-      statusCode: 200,
-      body: JSON.stringify({
-        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-        data: {
-          content: '✅ Setup complete! Check the message above.',
-          embeds: [{
-            title: '✨ Notifications Configured',
-            description: 'HuginBot will now send server updates to this channel.',
-            color: 0x00ff00,
-            footer: {
-              text: 'HuginBot • Ready for Adventure'
-            }
-          }],
-        },
-      }),
-    };
+    await sendFollowUpMessage(application_id, token, {
+      content: '✅ Setup complete! Check the message above.',
+      embeds: [{
+        title: '✨ Notifications Configured',
+        description: 'HuginBot will now send server updates to this channel.',
+        color: 0x00ff00,
+        footer: {
+          text: 'HuginBot • Ready for Adventure'
+        }
+      }],
+    });
 
   } catch (error) {
     console.error('Error in setup command:', error);
-    return {
-      statusCode: 200,
-      body: JSON.stringify({
-        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-        data: {
-          content: '❌ Failed to set up notifications. Please try again or create a webhook manually.',
-          embeds: [{
-            title: '⚠️ Setup Failed',
-            description: `Error: ${error instanceof Error ? error.message : String(error)}`,
-            color: 0xff0000,
-            fields: [{
-              name: 'Manual Setup',
-              value: '1. Go to Channel Settings → Integrations → Webhooks\n2. Create a new webhook\n3. Contact your administrator to configure it',
-              inline: false
-            }],
-            footer: {
-              text: 'HuginBot • Contact Support if Issue Persists'
-            }
-          }],
-          flags: 64, // Ephemeral for error messages
-        },
-      }),
-    };
+    await sendFollowUpMessage(application_id, token, {
+      content: '❌ Failed to set up notifications. Please try again or create a webhook manually.',
+      embeds: [{
+        title: '⚠️ Setup Failed',
+        description: `Error: ${error instanceof Error ? error.message : String(error)}`,
+        color: 0xff0000,
+        fields: [{
+          name: 'Manual Setup',
+          value: '1. Go to Channel Settings → Integrations → Webhooks\n2. Create a new webhook\n3. Contact your administrator to configure it',
+          inline: false
+        }],
+        footer: {
+          text: 'HuginBot • Contact Support if Issue Persists'
+        }
+      }],
+      flags: 64, // Ephemeral for error messages
+    });
   }
 }
 
 async function handleComponentInteraction(body: any): Promise<APIGatewayProxyResult> {
   const customId = body.data.custom_id;
+  const { application_id, token } = body;
   
   if (customId === 'status_refresh') {
-    return await handleStatusCommand();
+    return await handleStatusCommand(application_id, token);
   }
   
   return {
