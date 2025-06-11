@@ -748,8 +748,7 @@ async function handleHelpCommand(): Promise<APIGatewayProxyResult> {
 }
 
 async function handleSetupCommand(interaction: any): Promise<APIGatewayProxyResult> {
-  const { guild_id, channel_id, member, data } = interaction;
-  const webhookUrl = data.options?.find((opt: any) => opt.name === 'webhook_url')?.value;
+  const { guild_id, channel_id, member, application_id, token } = interaction;
 
   // Check if user has permissions (manage webhooks)
   const permissions = BigInt(member.permissions);
@@ -768,139 +767,174 @@ async function handleSetupCommand(interaction: any): Promise<APIGatewayProxyResu
     };
   }
 
-  // If no webhook URL provided, show instructions
-  if (!webhookUrl) {
-    return {
-      statusCode: 200,
-      body: JSON.stringify({
-        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-        data: {
-          embeds: [{
-            title: '🔧 Webhook Setup Instructions',
-            description: 'To receive server notifications, you need to create a Discord webhook.',
-            color: 0x5865f2,
-            fields: [
-              {
-                name: 'Step 1: Create Webhook',
-                value: '1. Go to this channel\'s settings\n2. Select "Integrations"\n3. Click "Create Webhook"\n4. Copy the webhook URL',
-                inline: false
-              },
-              {
-                name: 'Step 2: Configure HuginBot',
-                value: 'Run: `/setup webhook_url: <paste your webhook URL>`',
-                inline: false
-              },
-              {
-                name: 'Example',
-                value: '`/setup webhook_url: https://discord.com/api/webhooks/123456789/abcdef...`',
-                inline: false
-              }
-            ],
-            footer: {
-              text: 'HuginBot • Webhook Setup Required'
-            }
-          }],
-          flags: 64, // Ephemeral
-        },
-      }),
-    };
-  }
-
-  // Validate webhook URL format
   try {
-    const parsed = new URL(webhookUrl);
-    if (!parsed.hostname.includes('discord.com') && !parsed.hostname.includes('discordapp.com')) {
+    // Check if a webhook already exists for this guild
+    const existingWebhookParam = `/huginbot/discord-webhook/${guild_id}`;
+    let existingWebhook = null;
+    
+    try {
+      const result = await withRetry(() => ssmClient.send(new GetParameterCommand({
+        Name: existingWebhookParam,
+        WithDecryption: true
+      })));
+      existingWebhook = result.Parameter?.Value;
+    } catch (err) {
+      // No existing webhook, which is fine
+      console.log('No existing webhook found for guild:', guild_id);
+    }
+
+    if (existingWebhook) {
+      // Test if the existing webhook still works
+      try {
+        const testResponse = await fetch(existingWebhook, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            content: '✅ Webhook is already configured and working!',
+            username: 'HuginBot'
+          }),
+        });
+
+        if (testResponse.ok) {
+          return {
+            statusCode: 200,
+            body: JSON.stringify({
+              type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+              data: {
+                content: '✅ This server already has notifications configured!',
+                embeds: [{
+                  title: '📢 Notifications Active',
+                  description: 'HuginBot is already set up to send notifications to this channel.',
+                  color: 0x00ff00,
+                  fields: [{
+                    name: 'Need to change channels?',
+                    value: 'Delete the webhook in this channel\'s settings and run `/setup` in the new channel.',
+                    inline: false
+                  }],
+                  footer: {
+                    text: 'HuginBot • Ready for Adventure'
+                  }
+                }],
+              },
+            }),
+          };
+        }
+      } catch (err) {
+        console.log('Existing webhook is no longer valid, creating new one');
+      }
+    }
+
+    // Create a new webhook using Discord's API
+    const webhookName = 'HuginBot Notifications';
+    const createWebhookUrl = `https://discord.com/api/v10/channels/${channel_id}/webhooks`;
+
+    console.log('Creating webhook for channel:', channel_id);
+
+    // Make the API call to create a webhook
+    const botToken = process.env.DISCORD_BOT_TOKEN;
+    
+    if (!botToken) {
+      console.error('DISCORD_BOT_TOKEN not configured');
       return {
         statusCode: 200,
         body: JSON.stringify({
           type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
           data: {
-            content: '❌ Invalid webhook URL. Must be a Discord webhook URL.',
-            flags: 64, // Ephemeral
+            content: '❌ Bot configuration error: Missing bot token. Please contact the administrator.',
+            flags: 64,
           },
         }),
       };
     }
-  } catch (error) {
-    return {
-      statusCode: 200,
-      body: JSON.stringify({
-        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-        data: {
-          content: '❌ Invalid webhook URL format.',
-          flags: 64, // Ephemeral
-        },
-      }),
-    };
-  }
 
-  // Test the webhook before storing
-  try {
-    const testMessage = {
-      username: "HuginBot",
-      embeds: [{
-        title: "🔧 Webhook Test",
-        description: "Webhook configured successfully! You will now receive server notifications.",
-        color: 0x00ff00,
-        footer: {
-          text: "HuginBot • Configuration Test"
-        },
-        timestamp: new Date().toISOString()
-      }]
-    };
-
-    const response = await fetch(webhookUrl, {
+    const createResponse = await fetch(createWebhookUrl, {
       method: 'POST',
       headers: {
+        'Authorization': `Bot ${botToken}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(testMessage),
+      body: JSON.stringify({
+        name: webhookName,
+        avatar: null, // You can add a base64 encoded image here if you want
+      }),
     });
 
-    if (!response.ok) {
-      throw new Error(`Webhook test failed: ${response.status}`);
+    if (!createResponse.ok) {
+      const errorData = await createResponse.json();
+      console.error('Failed to create webhook:', errorData);
+      
+      // Check if it's a permissions issue
+      if (createResponse.status === 403) {
+        return {
+          statusCode: 200,
+          body: JSON.stringify({
+            type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+            data: {
+              content: '❌ I don\'t have permission to create webhooks in this channel. Please ensure I have the "Manage Webhooks" permission.',
+              flags: 64,
+            },
+          }),
+        };
+      }
+      
+      throw new Error(`Failed to create webhook: ${errorData.message || 'Unknown error'}`);
     }
-  } catch (error) {
-    console.error('Webhook test failed:', error);
-    return {
-      statusCode: 200,
-      body: JSON.stringify({
-        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-        data: {
-          content: '❌ Failed to test webhook. Please check the URL and try again.',
-          flags: 64, // Ephemeral
-        },
-      }),
-    };
-  }
 
-  // Store webhook URL in SSM
-  try {
+    const webhookData = await createResponse.json();
+    const webhookUrl = `https://discord.com/api/webhooks/${webhookData.id}/${webhookData.token}`;
+
+    console.log('Webhook created successfully:', webhookData.id);
+
+    // Store the webhook URL in SSM
     await withRetry(() => ssmClient.send(new PutParameterCommand({
-      Name: `/huginbot/discord-webhook/${guild_id}`,
+      Name: existingWebhookParam,
       Value: webhookUrl,
       Type: 'String',
       Overwrite: true,
-      Description: `Discord webhook for guild ${guild_id} configured by ${member.user.username}`,
+      Description: `Discord webhook for guild ${guild_id} in channel ${channel_id}`,
     })));
+
+    // Send a test message through the webhook
+    await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: 'HuginBot',
+        embeds: [{
+          title: '🎉 Webhook Created Successfully!',
+          description: 'I\'ll send server notifications to this channel.',
+          color: 0x00ff00,
+          fields: [
+            {
+              name: '📬 Notifications You\'ll Receive',
+              value: '• Server startup announcements\n• PlayFab join codes\n• Server shutdown notices\n• Backup status updates',
+              inline: false
+            },
+            {
+              name: '🛠️ Next Steps',
+              value: 'Use `/start` to launch the server and you\'ll see notifications here!',
+              inline: false
+            }
+          ],
+          footer: {
+            text: 'HuginBot • Watching Over Your Realm',
+            icon_url: 'https://static.wikia.nocookie.net/valheim/images/7/7d/Hugin.png'
+          },
+          timestamp: new Date().toISOString()
+        }]
+      }),
+    });
 
     return {
       statusCode: 200,
       body: JSON.stringify({
         type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
         data: {
-          content: '✅ Webhook configured successfully! You should have received a test message.',
+          content: '✅ Setup complete! Check the message above.',
           embeds: [{
-            title: '🎉 Setup Complete',
-            description: 'Server notifications are now configured for this Discord server.',
+            title: '✨ Notifications Configured',
+            description: 'HuginBot will now send server updates to this channel.',
             color: 0x00ff00,
-            fields: [
-              {
-                name: 'What happens next?',
-                value: 'You will receive notifications when:\n• Server starts up\n• Join codes are available\n• Server shuts down',
-                inline: false
-              }
-            ],
             footer: {
               text: 'HuginBot • Ready for Adventure'
             }
@@ -908,15 +942,29 @@ async function handleSetupCommand(interaction: any): Promise<APIGatewayProxyResu
         },
       }),
     };
+
   } catch (error) {
-    console.error('Error storing webhook:', error);
+    console.error('Error in setup command:', error);
     return {
       statusCode: 200,
       body: JSON.stringify({
         type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
         data: {
-          content: '❌ Failed to save webhook configuration. Please try again later.',
-          flags: 64, // Ephemeral
+          content: '❌ Failed to set up notifications. Please try again or create a webhook manually.',
+          embeds: [{
+            title: '⚠️ Setup Failed',
+            description: `Error: ${error instanceof Error ? error.message : String(error)}`,
+            color: 0xff0000,
+            fields: [{
+              name: 'Manual Setup',
+              value: '1. Go to Channel Settings → Integrations → Webhooks\n2. Create a new webhook\n3. Contact your administrator to configure it',
+              inline: false
+            }],
+            footer: {
+              text: 'HuginBot • Contact Support if Issue Persists'
+            }
+          }],
+          flags: 64, // Ephemeral for error messages
         },
       }),
     };

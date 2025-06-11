@@ -1,11 +1,41 @@
-import { parseWorldConfigs, validateWorldConfig, WorldConfig } from '../../lib/lambdas/utils/world-config';
+import { parseWorldConfigsFromEnv, validateWorldConfig, WorldConfig } from '../../lib/lambdas/utils/world-config';
 
 describe('World Config Utilities', () => {
-  // Original parseWorldConfigs tests
-  describe('parseWorldConfigs', () => {
-    test('parses multiple world configs correctly', () => {
-      const configString = 'World1,123456,ValheimWorld1,password1;World2,234567,ValheimWorld2,password2';
-      const configs = parseWorldConfigs(configString);
+  // Tests for parseWorldConfigsFromEnv function
+  describe('parseWorldConfigsFromEnv', () => {
+    const originalEnv = process.env;
+    
+    beforeEach(() => {
+      // Reset environment variables before each test
+      process.env = { ...originalEnv };
+      delete process.env.WORLD_COUNT;
+      delete process.env.WORLD_1_NAME;
+      delete process.env.WORLD_1_WORLD_NAME;
+      delete process.env.WORLD_1_PASSWORD;
+      delete process.env.WORLD_1_DISCORD_ID;
+      delete process.env.WORLD_2_NAME;
+      delete process.env.WORLD_2_WORLD_NAME;
+      delete process.env.WORLD_2_PASSWORD;
+      delete process.env.WORLD_2_DISCORD_ID;
+    });
+    
+    afterAll(() => {
+      // Restore original environment
+      process.env = originalEnv;
+    });
+
+    test('parses multiple world configs correctly from environment variables', () => {
+      process.env.WORLD_COUNT = '2';
+      process.env.WORLD_1_NAME = 'World1';
+      process.env.WORLD_1_WORLD_NAME = 'ValheimWorld1';
+      process.env.WORLD_1_PASSWORD = 'password1';
+      process.env.WORLD_1_DISCORD_ID = '123456';
+      process.env.WORLD_2_NAME = 'World2';
+      process.env.WORLD_2_WORLD_NAME = 'ValheimWorld2';
+      process.env.WORLD_2_PASSWORD = 'password2';
+      process.env.WORLD_2_DISCORD_ID = '234567';
+      
+      const configs = parseWorldConfigsFromEnv();
       
       expect(configs).toHaveLength(2);
       expect(configs[0]).toEqual({
@@ -22,31 +52,54 @@ describe('World Config Utilities', () => {
       });
     });
 
-    test('returns empty array for empty string', () => {
-      expect(parseWorldConfigs('')).toEqual([]);
+    test('returns empty array when no WORLD_COUNT is set', () => {
+      expect(parseWorldConfigsFromEnv()).toEqual([]);
     });
 
-    test('returns empty array for undefined input', () => {
-      // @ts-ignore - testing undefined input
-      expect(parseWorldConfigs(undefined)).toEqual([]);
+    test('returns empty array when WORLD_COUNT is 0', () => {
+      process.env.WORLD_COUNT = '0';
+      expect(parseWorldConfigsFromEnv()).toEqual([]);
     });
     
-    test('should filter out invalid configurations', () => {
-      // Two valid configs and one invalid (using new validation)
-      const configString = 'World1,123456,ValidWorld,password123;InvalidWorld,654321,Invalid-World,pass;World3,789012,AnotherValid,password789';
-      const result = parseWorldConfigs(configString);
+    test('should filter out incomplete configurations', () => {
+      process.env.WORLD_COUNT = '2';
+      process.env.WORLD_1_NAME = 'World1';
+      process.env.WORLD_1_WORLD_NAME = 'ValidWorld';
+      process.env.WORLD_1_PASSWORD = 'password123';
+      // Missing WORLD_2_NAME for the second world
+      process.env.WORLD_2_WORLD_NAME = 'IncompleteWorld';
+      process.env.WORLD_2_PASSWORD = 'password456';
       
-      // Should only have the valid configurations
-      expect(result.length).toBeLessThan(3);
-    });
-    
-    test('should trim whitespace from values', () => {
-      const configString = ' World1 , 123456 , ValidWorld , password123 ';
-      const result = parseWorldConfigs(configString);
+      const result = parseWorldConfigsFromEnv();
       
-      expect(result.length).toBeGreaterThan(0);
+      // Should only have the complete configuration
+      expect(result).toHaveLength(1);
       expect(result[0].name).toBe('World1');
-      expect(result[0].worldName).toBe('ValidWorld');
+    });
+    
+    test('should use default password when not provided', () => {
+      process.env.WORLD_COUNT = '1';
+      process.env.WORLD_1_NAME = 'TestWorld';
+      process.env.WORLD_1_WORLD_NAME = 'TestValheimWorld';
+      // No password set
+      
+      const result = parseWorldConfigsFromEnv();
+      
+      expect(result).toHaveLength(1);
+      expect(result[0].serverPassword).toBe('valheim');
+    });
+    
+    test('should handle missing Discord ID', () => {
+      process.env.WORLD_COUNT = '1';
+      process.env.WORLD_1_NAME = 'TestWorld';
+      process.env.WORLD_1_WORLD_NAME = 'TestValheimWorld';
+      process.env.WORLD_1_PASSWORD = 'testpass';
+      // No Discord ID set
+      
+      const result = parseWorldConfigsFromEnv();
+      
+      expect(result).toHaveLength(1);
+      expect(result[0].discordServerId).toBe('');
     });
   });
   

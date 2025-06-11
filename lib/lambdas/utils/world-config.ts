@@ -52,44 +52,55 @@ export function validateWorldConfig(worldConfig: WorldConfig): string[] {
 }
 
 /**
- * Parse world configurations from environment variable
- * @param configString Semicolon-separated list of world configurations
+ * Parse world configurations from WORLD_X_ environment variables
+ * Reads from WORLD_COUNT and WORLD_1_NAME, WORLD_1_WORLD_NAME, etc.
  * @returns Array of valid world configurations
  */
-export function parseWorldConfigs(configString: string): WorldConfig[] {
+export function parseWorldConfigsFromEnv(): WorldConfig[] {
   try {
-    if (!configString) {
-      return [];
-    }
-    
     const parsedConfigs: WorldConfig[] = [];
-    const configStrings = configString.split(';');
+    const worldCount = parseInt(process.env.WORLD_COUNT || '0', 10);
     
-    for (let i = 0; i < configStrings.length; i++) {
-      const worldString = configStrings[i].trim();
-      if (!worldString) continue;
+    console.log(`Found WORLD_COUNT: ${worldCount}`);
+    
+    for (let i = 1; i <= worldCount; i++) {
+      const name = process.env[`WORLD_${i}_NAME`];
+      const worldName = process.env[`WORLD_${i}_WORLD_NAME`];
+      const serverPassword = process.env[`WORLD_${i}_PASSWORD`] || 'valheim';
+      const discordServerId = process.env[`WORLD_${i}_DISCORD_ID`] || '';
       
-      const [name, discordServerId, worldName, serverPassword] = worldString.split(',').map(s => s.trim());
-      const worldConfig = { name, discordServerId, worldName, serverPassword };
-      
-      // Validate the world configuration
-      const validationErrors = validateWorldConfig(worldConfig);
-      
-      if (validationErrors.length > 0) {
-        console.error(`Invalid world configuration at index ${i}:`, validationErrors);
-        console.error(`Skipping invalid world: ${worldString}`);
+      // Only create world config if name and worldName are present
+      if (name && worldName) {
+        const worldConfig: WorldConfig = {
+          name,
+          discordServerId,
+          worldName,
+          serverPassword
+        };
+        
+        console.log(`Found world ${i}: ${name} (${worldName}) for Discord server: ${discordServerId}`);
+        
+        // Validate the world configuration
+        const validationErrors = validateWorldConfig(worldConfig);
+        
+        if (validationErrors.length > 0) {
+          console.error(`Invalid world configuration for WORLD_${i}:`, validationErrors);
+          console.error(`Skipping invalid world: ${name}`);
+        } else {
+          parsedConfigs.push(worldConfig);
+        }
       } else {
-        parsedConfigs.push(worldConfig);
+        console.log(`Skipping WORLD_${i}: missing name or worldName (name: ${name}, worldName: ${worldName})`);
       }
     }
     
+    console.log(`Parsed ${parsedConfigs.length} valid world configurations`);
     return parsedConfigs;
   } catch (error) {
-    console.error('Error parsing world configurations:', error);
+    console.error('Error parsing world configurations from environment:', error);
     return [];
   }
 }
 
-// Get world configurations from environment
-export const WORLD_CONFIGS = process.env.WORLD_CONFIGURATIONS ? 
-  parseWorldConfigs(process.env.WORLD_CONFIGURATIONS) : [];
+// Get world configurations from WORLD_X_ environment variables
+export const WORLD_CONFIGS = parseWorldConfigsFromEnv();

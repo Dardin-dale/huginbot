@@ -632,9 +632,25 @@ EOF`,
             VALHEIM_INSTANCE_ID: this.ec2Instance.instanceId,
             DISCORD_AUTH_TOKEN: discordAuthToken,
             BACKUP_BUCKET_NAME: this.backupBucket.bucketName,
-            WORLD_CONFIGURATIONS: process.env.WORLD_CONFIGURATIONS || '',
             DISCORD_BOT_PUBLIC_KEY: process.env.DISCORD_BOT_PUBLIC_KEY || '',
+            DISCORD_BOT_TOKEN: process.env.DISCORD_BOT_SECRET_TOKEN || '',
         };
+
+        // Add world configuration environment variables
+        // Pass WORLD_COUNT and all WORLD_X_ variables to Lambda
+        if (process.env.WORLD_COUNT) {
+            lambdaEnv.WORLD_COUNT = process.env.WORLD_COUNT;
+            
+            const worldCount = parseInt(process.env.WORLD_COUNT, 10);
+            for (let i = 1; i <= worldCount; i++) {
+                // Pass all WORLD_X_ environment variables to Lambda
+                Object.keys(process.env).forEach(key => {
+                    if (key.startsWith(`WORLD_${i}_`) && process.env[key]) {
+                        lambdaEnv[key] = process.env[key]!; // Non-null assertion since we checked above
+                    }
+                });
+            }
+        }
 
         // Remove empty values to avoid test issues
         Object.keys(lambdaEnv).forEach(key => {
