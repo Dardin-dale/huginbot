@@ -439,15 +439,28 @@ EOF`,
             `(crontab -l 2>/dev/null; echo "*/5 * * * * /usr/local/bin/switch-valheim-world.sh") | crontab -`
         );
 
+        // Read backup configuration from environment variables (with defaults)
+        const backupCron = process.env.DOCKER_BACKUP_CRON || "0 */2 * * *";
+        const backupMaxCount = process.env.DOCKER_BACKUP_MAX_COUNT || "12";
+        const backupMaxAge = process.env.DOCKER_BACKUP_MAX_AGE || "1440";
+        const backupIfIdle = process.env.DOCKER_BACKUP_IF_IDLE || "false";
+        const backupIdleGrace = process.env.DOCKER_BACKUP_IDLE_GRACE || "60";
+        const backupCompress = process.env.DOCKER_BACKUP_COMPRESS || "true";
+
         // Create environment variables for the Valheim docker container
         const dockerEnvVars = [
             `SERVER_NAME="${serverName}"`,
             `WORLD_NAME="${worldName}"`,
             `SERVER_PASS="${serverPassword}"`,
             `TZ="America/Los_Angeles"`,
+            `BACKUPS="true"`,
             `BACKUPS_DIRECTORY="/config/backups"`,
-            `BACKUPS_INTERVAL="3600"`,
-            `BACKUPS_MAX_AGE="3"`,
+            `BACKUPS_CRON="${backupCron}"`,
+            `BACKUPS_IF_IDLE="${backupIfIdle}"`,
+            `BACKUPS_IDLE_GRACE_PERIOD="${backupIdleGrace}"`,
+            `BACKUPS_MAX_COUNT="${backupMaxCount}"`,
+            `BACKUPS_MAX_AGE="${backupMaxAge}"`,
+            `BACKUPS_ZIP="${backupCompress}"`,
             `BACKUPS_DIRECTORY_PERMISSIONS="755"`,
             `BACKUPS_FILE_PERMISSIONS="644"`,
             `CONFIG_DIRECTORY_PERMISSIONS="755"`,
@@ -532,6 +545,7 @@ EOF`,
         -v /mnt/valheim-data/mods:/bepinex/plugins \\
         ${dockerEnvVars.map(env => `-e ${env}`).join(" \\\n        ")} \\
         --restart unless-stopped \\
+        --stop-timeout 120 \\
         lloesche/valheim-server`,
 
             // Start the PlayFab monitoring service

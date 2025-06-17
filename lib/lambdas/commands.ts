@@ -466,6 +466,30 @@ async function handleStopCommandAsync(applicationId: string, token: string): Pro
       return;
     }
 
+    // Trigger backup before shutdown using container's built-in backup system
+    console.log(`💾 Triggering pre-shutdown backup`);
+    try {
+      await withRetry(() => ssmClient.send(new SendCommandCommand({
+        DocumentName: 'AWS-RunShellScript',
+        InstanceIds: [VALHEIM_INSTANCE_ID],
+        Parameters: {
+          'commands': [
+            '# Trigger container backup using SIGHUP signal',
+            'docker exec valheim-server pkill -HUP valheim-backup || true',
+            '# Wait a moment for backup to start',
+            'sleep 5',
+            '# Check if backup is running (optional verification)',
+            'docker exec valheim-server pgrep -f valheim-backup && echo "Backup triggered successfully" || echo "Backup may have completed or failed"'
+          ]
+        },
+        Comment: 'Pre-shutdown backup triggered via Discord stop command'
+      })));
+      console.log(`✅ Pre-shutdown backup command sent`);
+    } catch (backupError) {
+      console.error('⚠️ Pre-shutdown backup failed, proceeding with shutdown:', backupError);
+      // Don't block shutdown if backup fails
+    }
+
     console.log(`🔄 Stopping EC2 instance: ${VALHEIM_INSTANCE_ID}`);
     await withRetry(() => ec2Client.send(new StopInstancesCommand({
       InstanceIds: [VALHEIM_INSTANCE_ID]

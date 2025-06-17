@@ -121,6 +121,47 @@ Select **"🌍 World Management"** → **"Add World"**
 
 Each world can be linked to a different Discord server.
 
+### Backup Configuration
+
+HuginBot uses a dual backup system for maximum reliability:
+
+#### Docker Container Backups (Primary)
+```bash
+# Global backup settings (apply to all worlds)
+DOCKER_BACKUP_CRON="0 */2 * * *"     # Every 2 hours
+DOCKER_BACKUP_MAX_COUNT=12           # Keep 12 backups (24 hours)
+DOCKER_BACKUP_MAX_AGE=1440           # Max age 1440 minutes (24 hours)
+DOCKER_BACKUP_IF_IDLE=false          # Only backup when players active
+DOCKER_BACKUP_IDLE_GRACE=60          # Wait 60 min after last disconnect
+DOCKER_BACKUP_COMPRESS=true          # Compress backups (.tar.gz)
+```
+
+#### Per-World Backup Overrides
+You can customize backup settings for specific worlds:
+```bash
+# Example: More frequent backups for important world
+WORLD_1_BACKUP_CRON="0 */1 * * *"    # Every hour for World 1
+WORLD_1_BACKUP_MAX_COUNT=24          # Keep 24 backups
+WORLD_2_BACKUP_IF_IDLE=true          # Backup World 2 even when idle
+```
+
+#### S3 Long-term Storage
+```bash
+BACKUP_FREQUENCY_HOURS=24            # Daily S3 backups
+BACKUPS_TO_KEEP=7                    # Keep 7 days of S3 backups
+```
+
+#### Backup Triggers
+- **Automatic**: Container backups every 2 hours (configurable)
+- **Pre-shutdown**: Automatic backup before server stop
+- **Manual**: `/backup create` command in Discord
+- **CLI**: Manual backups via CLI interface
+
+#### Backup Locations
+- **Container backups**: Stored in `/config/backups` inside container + S3
+- **S3 backups**: `s3://your-bucket/worlds/world-name/backup-timestamp.tar.gz`
+- **Retention**: Automatic cleanup based on count and age limits
+
 ## 🤖 Discord Commands
 
 | Command | Description |
@@ -133,8 +174,8 @@ Each world can be linked to a different Discord server.
 | `/controls` | Show interactive control panel |
 | `/worlds list` | List available worlds |
 | `/worlds switch` | Switch to different world |
-| `/backup list` | Show recent backups |
-| `/backup create` | Create manual backup |
+| `/backup list` | Show recent backups from S3 |
+| `/backup create` | Create manual backup (requires server running) |
 | `/help` | Show command help |
 
 ## 🖥️ CLI Management
@@ -200,6 +241,23 @@ Enter your Discord server ID when prompted.
 2. Check AWS Secrets Manager for webhook secret
 3. Verify the channel allows webhook posts
 4. Check CloudWatch Logs for webhook errors
+
+### Backup Issues
+
+**Container backups not working:**
+1. Check Docker container logs: `docker logs valheim-server`
+2. Verify backup settings in `.env` file
+3. Ensure `/config/backups` directory has proper permissions
+
+**Manual backup fails:**
+1. Server must be running to create backups
+2. Check S3 bucket permissions and storage space
+3. Review CloudWatch logs for SSM command execution
+
+**Missing backups:**
+1. Check `DOCKER_BACKUP_IF_IDLE` setting - may not backup when no players
+2. Verify backup schedule with `DOCKER_BACKUP_CRON`
+3. Check backup retention settings (`MAX_COUNT`, `MAX_AGE`)
 
 ## 🏗️ Architecture
 
