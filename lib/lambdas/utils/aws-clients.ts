@@ -4,7 +4,8 @@ import {
 } from "@aws-sdk/client-ec2";
 import {
   SSMClient,
-  GetParameterCommand
+  GetParameterCommand,
+  GetParametersCommand
 } from "@aws-sdk/client-ssm";
 import {
   S3Client
@@ -87,6 +88,25 @@ export async function getInstanceStatus(): Promise<string> {
 }
 
 /**
+ * Get fast basic server status - just EC2 instance state
+ * @returns Object with basic status info
+ */
+export async function getFastServerStatus(): Promise<{
+  status: string;
+  message: string;
+  launchTime?: Date;
+}> {
+  // Get instance details in one call (includes status and launch time)
+  const details = await getInstanceDetails();
+  
+  return {
+    status: details.status,
+    message: getStatusMessage(details.status),
+    launchTime: details.launchTime
+  };
+}
+
+/**
  * Get the detailed server status including operational readiness
  * This goes beyond EC2 status and checks if the Valheim server itself is ready
  * @returns Object with status, message, and readiness
@@ -120,54 +140,53 @@ export async function getDetailedServerStatus(): Promise<{
   
   // Instance is running, but need to check if the Valheim server is actually ready
   try {
-    // Check for join code in SSM - this is set by the notify-join-code Lambda
-    const joinCodeCommand = new GetParameterCommand({
-      Name: SSM_PARAMS.PLAYFAB_JOIN_CODE,
+    // Get both join code and timestamp in a single batch call
+    const parametersCommand = new GetParametersCommand({
+      Names: [
+        SSM_PARAMS.PLAYFAB_JOIN_CODE,
+        SSM_PARAMS.PLAYFAB_JOIN_CODE_TIMESTAMP
+      ],
       WithDecryption: true
     });
     
-    const joinCodeResponse = await withRetry(() => ssmClient.send(joinCodeCommand));
+    const parametersResponse = await withRetry(() => ssmClient.send(parametersCommand));
     
-    if (joinCodeResponse.Parameter?.Value) {
-      const joinCode = joinCodeResponse.Parameter.Value;
+    const joinCodeParam = parametersResponse.Parameters?.find(p => p.Name === SSM_PARAMS.PLAYFAB_JOIN_CODE);
+    const timestampParam = parametersResponse.Parameters?.find(p => p.Name === SSM_PARAMS.PLAYFAB_JOIN_CODE_TIMESTAMP);
+    
+    if (joinCodeParam?.Value) {
+      const joinCode = joinCodeParam.Value;
       
-      // Check the join code timestamp to see how fresh it is
-      try {
-        const timestampCommand = new GetParameterCommand({
-          Name: SSM_PARAMS.PLAYFAB_JOIN_CODE_TIMESTAMP
-        });
+      if (timestampParam?.Value) {
+        const timestamp = new Date(timestampParam.Value);
+        const now = new Date();
         
-        const timestampResponse = await withRetry(() => ssmClient.send(timestampCommand));
+        // If join code is less than 30 minutes old, server is probably operational
+        const ageInMinutes = (now.getTime() - timestamp.getTime()) / (1000 * 60);
         
-        if (timestampResponse.Parameter?.Value) {
-          const timestamp = new Date(timestampResponse.Parameter.Value);
-          const now = new Date();
-          
-          // If join code is less than 30 minutes old, server is probably operational
-          const ageInMinutes = (now.getTime() - timestamp.getTime()) / (1000 * 60);
-          
-          if (ageInMinutes < 30) {
-            result.isReady = true;
-            result.isServerRunning = true;
-            result.joinCode = joinCode;
-            result.message = "Server is online and ready to play! Use the join code to connect.";
-          } else {
-            // Join code exists but is old - server might be stuck or has issues
-            result.isServerRunning = true;
-            result.message = "Server is running but the join code is stale. The server might be having issues.";
-          }
+        if (ageInMinutes < 30) {
+          result.isReady = true;
+          result.isServerRunning = true;
+          result.joinCode = joinCode;
+          result.message = "Server is online and ready to play! Use the join code to connect.";
+        } else {
+          // Join code exists but is old - server might be stuck or has issues
+          result.isServerRunning = true;
+          result.message = "Server is running but the join code is stale. The server might be having issues.";
         }
-      } catch (err) {
-        // Timestamp parameter not found, but we have a join code
+      } else {
+        // Join code exists but no timestamp - assume it's valid
+        result.isReady = true;
         result.isServerRunning = true;
-        result.message = "Server appears to be running, but status information is incomplete.";
+        result.joinCode = joinCode;
+        result.message = "Server appears to be running and ready to play!";
       }
     } else {
       // No join code found, but EC2 is running
       result.message = "Server is starting up, but not yet ready to accept connections.";
     }
   } catch (err) {
-    // Join code parameter not found - server is probably still starting
+    // Parameters not found - server is probably still starting
     result.message = "Server is running but not yet ready. Please wait for the join code notification.";
   }
   

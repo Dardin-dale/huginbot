@@ -2,6 +2,7 @@
 
 ## Architecture Overview
 HuginBot is a Valheim server management system that leverages AWS CDK for infrastructure deployment and Discord bot integration for user interactions.
+The project is an aws harness for the https://github.com/lloesche/valheim-server-docker docker container.
 
 ### Key Components:
 - **EC2-based Valheim server** using Docker container (lloesche/valheim-server)

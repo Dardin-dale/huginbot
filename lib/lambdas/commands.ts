@@ -28,6 +28,7 @@ import {
   SSM_PARAMS,
   getInstanceStatus,
   getStatusMessage,
+  getFastServerStatus,
   getDetailedServerStatus
 } from "./utils/aws-clients";
 import { 
@@ -60,11 +61,13 @@ const { verifyKey } = require('discord-interactions');
 // Import fetch for webhook testing (Node 18+ has built-in fetch)
 const fetch = globalThis.fetch;
 
-// Helper function to send follow-up messages
+// Enhanced sendFollowUpMessage with better error handling
 async function sendFollowUpMessage(applicationId: string, token: string, content: any): Promise<void> {
   const followUpUrl = `https://discord.com/api/v10/webhooks/${applicationId}/${token}`;
   
   try {
+    console.log(`📤 Sending follow-up message to Discord webhook`);
+    
     const response = await fetch(followUpUrl, {
       method: 'POST',
       headers: {
@@ -75,10 +78,18 @@ async function sendFollowUpMessage(applicationId: string, token: string, content
     
     if (!response.ok) {
       const errorData = await response.text();
-      console.error('Failed to send follow-up message:', response.status, errorData);
+      console.error(`❌ Discord API error: ${response.status} ${response.statusText}`);
+      console.error(`Error response: ${errorData}`);
+      throw new Error(`Discord API returned ${response.status}: ${errorData}`);
     }
+    
+    console.log(`✅ Follow-up message sent successfully`);
+    
   } catch (error) {
-    console.error('Error sending follow-up message:', error);
+    console.error('❌ Error sending follow-up message:', error);
+    console.error('Follow-up URL:', followUpUrl);
+    console.error('Content:', JSON.stringify(content, null, 2));
+    throw error; // Re-throw so calling function can handle it
   }
 }
 
@@ -257,8 +268,17 @@ async function handleStartCommandAsync(worldName?: string, guildId?: string, app
   }
 
   try {
-    // Check instance status
-    const status = await getInstanceStatus();
+    console.log(`🚀 Starting server command - worldName: ${worldName}, guildId: ${guildId}`);
+    
+    // Check instance status with timeout - use fast check for start command
+    const status = await Promise.race([
+      getInstanceStatus(),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('getInstanceStatus timeout')), 10000)
+      )
+    ]) as string;
+    
+    console.log(`📊 Current instance status: ${status}`);
     
     if (status === 'running') {
       await sendFollowUpMessage(applicationId, token, {
@@ -301,7 +321,8 @@ async function handleStartCommandAsync(worldName?: string, guildId?: string, app
     }
     
     if (selectedWorldConfig) {
-      // Validate and set active world
+      console.log(`🌍 Selected world: ${selectedWorldConfig.name} (${selectedWorldConfig.worldName})`);
+      
       const validationErrors = validateWorldConfig(selectedWorldConfig);
       if (validationErrors.length > 0) {
         await sendFollowUpMessage(applicationId, token, {
@@ -310,6 +331,7 @@ async function handleStartCommandAsync(worldName?: string, guildId?: string, app
         return;
       }
       
+      // Store active world configuration
       await withRetry(() => 
         ssmClient.send(new PutParameterCommand({
           Name: SSM_PARAMS.ACTIVE_WORLD,
@@ -318,6 +340,7 @@ async function handleStartCommandAsync(worldName?: string, guildId?: string, app
           Overwrite: true
         }))
       );
+      console.log(`✅ Active world configuration saved`);
     }
 
     // Clear any existing PlayFab join codes
@@ -327,14 +350,17 @@ async function handleStartCommandAsync(worldName?: string, guildId?: string, app
           Name: SSM_PARAMS.PLAYFAB_JOIN_CODE
         }))
       );
+      console.log(`🧹 Cleared existing PlayFab join code`);
     } catch (err) {
-      console.log('No PlayFab parameters found to delete');
+      console.log('ℹ️ No existing PlayFab parameters found to delete');
     }
 
     // Start the instance
+    console.log(`🔄 Starting EC2 instance: ${VALHEIM_INSTANCE_ID}`);
     await withRetry(() => ec2Client.send(new StartInstancesCommand({
       InstanceIds: [VALHEIM_INSTANCE_ID]
     })));
+    console.log(`✅ EC2 instance start command sent successfully`);
 
     const displayWorldName = selectedWorldConfig ? selectedWorldConfig.name : undefined;
 
@@ -355,11 +381,35 @@ async function handleStartCommandAsync(worldName?: string, guildId?: string, app
         timestamp: new Date().toISOString(),
       }],
     });
+    
+    console.log(`✅ Start command completed successfully`);
+    
   } catch (error) {
-    console.error('Error starting server:', error);
-    await sendFollowUpMessage(applicationId, token, {
-      content: '❌ Failed to start server. Please try again later.',
-    });
+    console.error('❌ Error in handleStartCommandAsync:', error);
+    console.error('Stack trace:', error instanceof Error ? error.stack : 'No stack trace');
+    
+    if (applicationId && token) {
+      try {
+        await sendFollowUpMessage(applicationId, token, {
+          content: `❌ Failed to start server: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          embeds: [{
+            title: 'Start Command Failed',
+            description: 'There was an error starting the server. Please check the logs or try again.',
+            color: 0xff0000,
+            fields: [{
+              name: 'Error Details',
+              value: error instanceof Error ? error.message : String(error),
+              inline: false
+            }],
+            footer: {
+              text: 'HuginBot • Contact administrator if this persists'
+            }
+          }]
+        });
+      } catch (followUpError) {
+        console.error('❌ Failed to send error follow-up message:', followUpError);
+      }
+    }
   }
 }
 
@@ -376,6 +426,11 @@ async function handleStopCommand(applicationId?: string, token?: string): Promis
   if (applicationId && token) {
     handleStopCommandAsync(applicationId, token).catch(error => {
       console.error('Error in handleStopCommandAsync:', error);
+      sendFollowUpMessage(applicationId, token, {
+        content: '❌ An unexpected error occurred while stopping the server. Please try again.',
+      }).catch(followUpError => {
+        console.error('Failed to send error follow-up message:', followUpError);
+      });
     });
   }
 
@@ -383,8 +438,19 @@ async function handleStopCommand(applicationId?: string, token?: string): Promis
 }
 
 async function handleStopCommandAsync(applicationId: string, token: string): Promise<void> {
+  console.log('handleStopCommandAsync called with applicationId:', applicationId, 'token length:', token?.length);
   try {
-    const status = await getInstanceStatus();
+    console.log(`🛑 Stopping server command initiated`);
+    
+    // Check instance status with timeout - use fast check for stop command
+    const status = await Promise.race([
+      getInstanceStatus(),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('getInstanceStatus timeout')), 10000)
+      )
+    ]) as string;
+    
+    console.log(`📊 Current instance status: ${status}`);
     
     if (status === 'stopped') {
       await sendFollowUpMessage(applicationId, token, {
@@ -400,9 +466,11 @@ async function handleStopCommandAsync(applicationId: string, token: string): Pro
       return;
     }
 
+    console.log(`🔄 Stopping EC2 instance: ${VALHEIM_INSTANCE_ID}`);
     await withRetry(() => ec2Client.send(new StopInstancesCommand({
       InstanceIds: [VALHEIM_INSTANCE_ID]
     })));
+    console.log(`✅ EC2 instance stop command sent successfully`);
 
     await sendFollowUpMessage(applicationId, token, {
       content: '🛑 Stopping Valheim server...',
@@ -416,11 +484,33 @@ async function handleStopCommandAsync(applicationId: string, token: string): Pro
         timestamp: new Date().toISOString(),
       }],
     });
+    
+    console.log(`✅ Stop command completed successfully`);
+    
   } catch (error) {
-    console.error('Error stopping server:', error);
-    await sendFollowUpMessage(applicationId, token, {
-      content: '❌ Failed to stop server. Please try again later.',
-    });
+    console.error('❌ Error in handleStopCommandAsync:', error);
+    console.error('Stack trace:', error instanceof Error ? error.stack : 'No stack trace');
+    
+    try {
+      await sendFollowUpMessage(applicationId, token, {
+        content: `❌ Failed to stop server: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        embeds: [{
+          title: 'Stop Command Failed',
+          description: 'There was an error stopping the server. Please check the logs or try again.',
+          color: 0xff0000,
+          fields: [{
+            name: 'Error Details',
+            value: error instanceof Error ? error.message : String(error),
+            inline: false
+          }],
+          footer: {
+            text: 'HuginBot • Contact administrator if this persists'
+          }
+        }]
+      });
+    } catch (followUpError) {
+      console.error('❌ Failed to send error follow-up message:', followUpError);
+    }
   }
 }
 
@@ -437,6 +527,11 @@ async function handleStatusCommand(applicationId?: string, token?: string): Prom
   if (applicationId && token) {
     handleStatusCommandAsync(applicationId, token).catch(error => {
       console.error('Error in handleStatusCommandAsync:', error);
+      sendFollowUpMessage(applicationId, token, {
+        content: '❌ An unexpected error occurred while checking server status. Please try again.',
+      }).catch(followUpError => {
+        console.error('Failed to send error follow-up message:', followUpError);
+      });
     });
   }
 
@@ -444,19 +539,23 @@ async function handleStatusCommand(applicationId?: string, token?: string): Prom
 }
 
 async function handleStatusCommandAsync(applicationId: string, token: string): Promise<void> {
+  console.log('handleStatusCommandAsync called with applicationId:', applicationId, 'token length:', token?.length);
   try {
-    const { 
-      status, 
-      message, 
-      isReady, 
-      isServerRunning, 
-      joinCode, 
-      launchTime 
-    } = await getDetailedServerStatus();
-
+    console.log(`📊 Status check command initiated with progressive loading`);
+    
+    // Step 1: Get fast status and send initial response
+    const { status, message: fastMessage, launchTime } = await Promise.race([
+      getFastServerStatus(),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('getFastServerStatus timeout')), 10000)
+      )
+    ]) as any;
+    
+    console.log(`📊 Fast server status retrieved: ${status}`);
+    
     const statusEmoji = status === 'running' ? '✅' : status === 'stopped' ? '❌' : '⏳';
     
-    const fields = [
+    let initialFields = [
       {
         name: 'Status',
         value: `${statusEmoji} ${status}`,
@@ -470,48 +569,167 @@ async function handleStatusCommandAsync(applicationId: string, token: string): P
       const uptimeHours = Math.floor(uptimeMinutes / 60);
       const remainingMinutes = uptimeMinutes % 60;
       
-      fields.push({
+      initialFields.push({
         name: 'Uptime',
         value: uptimeHours > 0 ? `${uptimeHours}h ${remainingMinutes}m` : `${uptimeMinutes}m`,
         inline: true,
       });
     }
 
-    if (isReady && joinCode) {
-      fields.push({
-        name: 'PlayFab Join Code',
-        value: `\`${joinCode}\``,
+    // Add a loading indicator if server is running
+    if (status === 'running') {
+      initialFields.push({
+        name: 'Server Details',
+        value: '🔄 Checking server readiness...',
         inline: false,
       });
     }
 
+    // Send initial fast response
     await sendFollowUpMessage(applicationId, token, {
       embeds: [{
         title: 'Valheim Server Status',
-        description: message,
+        description: fastMessage,
         color: status === 'running' ? 0x00ff00 : status === 'stopped' ? 0xff0000 : 0xffaa00,
-        fields: fields,
+        fields: initialFields,
         footer: {
           text: 'HuginBot • Use /start to launch the server'
         },
         timestamp: new Date().toISOString(),
-      }],
-      components: [{
-        type: 1,
-        components: [{
-          type: 2,
-          style: 2,
-          label: "Refresh Status",
-          custom_id: "status_refresh",
-          emoji: { name: "🔄" }
-        }]
       }]
     });
+
+    // Step 2: If server is running, get detailed status and update
+    if (status === 'running') {
+      try {
+        console.log(`📊 Getting detailed status for running server`);
+        
+        const detailedStatus = await Promise.race([
+          getDetailedServerStatus(),
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('getDetailedServerStatus timeout')), 20000)
+          )
+        ]) as any;
+        
+        const { message: detailedMessage, isReady, joinCode } = detailedStatus;
+        console.log(`📊 Detailed server status retrieved: ready: ${isReady}, hasJoinCode: ${!!joinCode}`);
+        
+        // Update the fields with detailed information
+        let updatedFields = [
+          {
+            name: 'Status',
+            value: `${statusEmoji} ${status}`,
+            inline: true,
+          }
+        ];
+
+        if (launchTime) {
+          const uptimeMs = Date.now() - launchTime.getTime();
+          const uptimeMinutes = Math.floor(uptimeMs / (1000 * 60));
+          const uptimeHours = Math.floor(uptimeMinutes / 60);
+          const remainingMinutes = uptimeMinutes % 60;
+          
+          updatedFields.push({
+            name: 'Uptime',
+            value: uptimeHours > 0 ? `${uptimeHours}h ${remainingMinutes}m` : `${uptimeMinutes}m`,
+            inline: true,
+          });
+        }
+
+        if (isReady && joinCode) {
+          updatedFields.push({
+            name: 'PlayFab Join Code',
+            value: `\`${joinCode}\``,
+            inline: false,
+          });
+        } else if (status === 'running') {
+          updatedFields.push({
+            name: 'Server Details',
+            value: '⏳ Server is starting up, join code not yet available',
+            inline: false,
+          });
+        }
+
+        // Send updated response with detailed information
+        await sendFollowUpMessage(applicationId, token, {
+          embeds: [{
+            title: 'Valheim Server Status',
+            description: detailedMessage,
+            color: isReady ? 0x00ff00 : 0xffaa00,
+            fields: updatedFields,
+            footer: {
+              text: 'HuginBot • Use /start to launch the server'
+            },
+            timestamp: new Date().toISOString(),
+          }],
+          components: [{
+            type: 1,
+            components: [{
+              type: 2,
+              style: 2,
+              label: "Refresh Status",
+              custom_id: "status_refresh",
+              emoji: { name: "🔄" }
+            }]
+          }]
+        });
+        
+      } catch (detailError) {
+        console.error('Failed to get detailed status, keeping fast response:', detailError);
+        // Don't send another message if detailed status fails - the fast response is sufficient
+      }
+    } else {
+      // For non-running servers, add the refresh button to the initial response
+      await sendFollowUpMessage(applicationId, token, {
+        embeds: [{
+          title: 'Valheim Server Status',
+          description: fastMessage,
+          color: status === 'running' ? 0x00ff00 : status === 'stopped' ? 0xff0000 : 0xffaa00,
+          fields: initialFields,
+          footer: {
+            text: 'HuginBot • Use /start to launch the server'
+          },
+          timestamp: new Date().toISOString(),
+        }],
+        components: [{
+          type: 1,
+          components: [{
+            type: 2,
+            style: 2,
+            label: "Refresh Status",
+            custom_id: "status_refresh",
+            emoji: { name: "🔄" }
+          }]
+        }]
+      });
+    }
+    
+    console.log(`✅ Status command completed successfully`);
+    
   } catch (error) {
-    console.error('Error checking status:', error);
-    await sendFollowUpMessage(applicationId, token, {
-      content: '❌ Failed to check server status.',
-    });
+    console.error('❌ Error in handleStatusCommandAsync:', error);
+    console.error('Stack trace:', error instanceof Error ? error.stack : 'No stack trace');
+    
+    try {
+      await sendFollowUpMessage(applicationId, token, {
+        content: `❌ Failed to check server status: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        embeds: [{
+          title: 'Status Check Failed',
+          description: 'There was an error checking the server status. Please try again.',
+          color: 0xff0000,
+          fields: [{
+            name: 'Error Details',
+            value: error instanceof Error ? error.message : String(error),
+            inline: false
+          }],
+          footer: {
+            text: 'HuginBot • Contact administrator if this persists'
+          }
+        }]
+      });
+    } catch (followUpError) {
+      console.error('❌ Failed to send error follow-up message:', followUpError);
+    }
   }
 }
 

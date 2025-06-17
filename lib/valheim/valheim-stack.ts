@@ -458,27 +458,6 @@ EOF`,
             `STEAMCMD_ARGS="validate"`,
             `BEPINEX="${enableBepInEx ? "true" : "false"}"`,
         ];
-        
-        // Add Discord webhook and lifecycle hooks
-        if (props?.worldConfigurations) {
-            // Use the first world config's Discord server ID for getting the webhook
-            const discordServerId = props.worldConfigurations[0].discordServerId;
-            
-            // Add webhook environment variables with error handling
-            dockerEnvVars.push('DISCORD_WEBHOOK="$(aws ssm get-parameter --name /huginbot/discord-webhook/' + discordServerId + ' --with-decryption --query Parameter.Value --output text 2>/dev/null || echo "")"');
-            
-            // Add error detection for missing webhook
-            dockerEnvVars.push('[ -z "$DISCORD_WEBHOOK" ] && echo "WARNING: Discord webhook URL not found for server ' + discordServerId + '. Notifications will not be sent." || echo "Discord webhook configured successfully for ' + discordServerId + '"');
-            
-            // Add server lifecycle hooks
-            dockerEnvVars.push('PRE_BOOTSTRAP_HOOK="curl -sfSL -X POST -H \\"Content-Type: application/json\\" -d \'{\\"username\\":\\"HuginBot\\",\\"content\\":\\"Server is starting...\\"}\' \\"$DISCORD_WEBHOOK\\""');
-            dockerEnvVars.push('POST_SERVER_LISTENING_HOOK="curl -sfSL -X POST -H \\"Content-Type: application/json\\" -d \'{\\"username\\":\\"HuginBot\\",\\"content\\":\\"Server is online and ready to play!\\"}\' \\"$DISCORD_WEBHOOK\\""');
-            dockerEnvVars.push('PRE_SERVER_SHUTDOWN_HOOK="curl -sfSL -X POST -H \\"Content-Type: application/json\\" -d \'{\\"username\\":\\"HuginBot\\",\\"content\\":\\"Server is shutting down. Save your game!\\"}\' \\"$DISCORD_WEBHOOK\\""');
-            
-            // Add log filtering for join code only - we don't need to notify for player joins/leaves
-            dockerEnvVars.push('VALHEIM_LOG_FILTER_CONTAINS_JoinCode="Session .* with join code [0-9]+ and IP"');
-            dockerEnvVars.push('ON_VALHEIM_LOG_FILTER_CONTAINS_JoinCode="{ read l; server_name=\\$(echo \\"$l\\" | grep -o \\"Session \\\\\\"\\".*\\\\\\"\\" | cut -d\\\\\\"\\" -f2); join_code=\\$(echo \\"$l\\" | grep -o \\"join code [0-9]*\\" | cut -d\\\" \\\" -f3); msg=\\"🎮 Server \\\\\\"$server_name\\\\\\" is ready! Join code: $join_code\\"; curl -sfSL -X POST -H \\"Content-Type: application/json\\" -d \\"{\\\\\\"username\\\\\\":\\\\\\"HuginBot\\\\\\",\\\\\\"content\\\\\\":\\\\\\"$msg\\\\\\"}\\" \\"$DISCORD_WEBHOOK\\"; }"');
-        }
 
         // Add admin IDs if provided
         if (props?.adminIds) {
@@ -511,6 +490,7 @@ Type=simple
 ExecStart=/usr/local/bin/monitor-playfab.sh
 Restart=always
 RestartSec=10
+Environment=GUILD_ID=${props?.worldConfigurations?.[0]?.discordServerId || 'unknown'}
 
 [Install]
 WantedBy=multi-user.target
@@ -878,6 +858,29 @@ EOF`,
 
         // Connect EventBridge rule to notify-shutdown Lambda
         shutdownEventRule.addTarget(new LambdaFunction(notifyShutdownFunction));
+
+        // Create notify-join-code Lambda function
+        const notifyJoinCodeFunction = new NodejsFunction(this, 'NotifyJoinCodeFunction', {
+            ...lambdaDefaultProps,
+            entry: path.join(__dirname, '../lambdas/notify-join-code.ts'),
+            handler: 'handler',
+            timeout: Duration.seconds(30),
+        });
+
+        // Grant SSM permissions for webhook and world config access
+        notifyJoinCodeFunction.addToRolePolicy(ssmNotifyPolicy);
+
+        // Create EventBridge rule for join code events
+        const joinCodeEventRule = new Rule(this, 'JoinCodeEventRule', {
+            eventPattern: {
+                source: ['valheim.server'],
+                detailType: ['PlayFab.JoinCodeDetected']
+            },
+            description: 'Trigger Discord notification when join code is detected'
+        });
+
+        // Connect EventBridge rule to notify-join-code Lambda
+        joinCodeEventRule.addTarget(new LambdaFunction(notifyJoinCodeFunction));
 
         // Outputs
         new CfnOutput(this, "InstanceId", {
