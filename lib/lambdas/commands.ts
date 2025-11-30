@@ -83,14 +83,15 @@ function isInfrastructureError(error: any): boolean {
 // Enhanced sendFollowUpMessage with retry mechanism and better error handling
 async function sendFollowUpMessage(applicationId: string, token: string, content: any, retries: number = 2): Promise<void> {
   const followUpUrl = `https://discord.com/api/v10/webhooks/${applicationId}/${token}`;
-  
+
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       console.log(`📤 Sending follow-up message to Discord webhook (attempt ${attempt + 1}/${retries + 1})`);
-      
+      console.log(`Webhook URL: ${followUpUrl.substring(0, 60)}...`); // Log partial URL (don't expose token)
+
       // Add timeout to prevent hanging connections
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
       
       const response = await fetch(followUpUrl, {
         method: 'POST',
@@ -129,6 +130,7 @@ async function sendFollowUpMessage(applicationId: string, token: string, content
       
     } catch (error: any) {
       console.error(`❌ Error sending follow-up message (attempt ${attempt + 1}):`, error.message || error);
+      console.error(`Error name: ${error.name}, Error code: ${error.code}, Error stack: ${error.stack}`);
       
       // Check if it's a network/socket error that might be retryable
       const isRetryableError = error.name === 'AbortError' || 
@@ -281,7 +283,7 @@ export async function handler(
         case 'stop':
           return await handleStopCommand(application_id, token);
         case 'status':
-          return await handleStatusCommand(application_id, token);
+          return await handleStatusCommand();
         case 'worlds':
           return await handleWorldsCommand(data, guild_id);
         case 'backup':
@@ -720,68 +722,7 @@ async function handleStopCommandAsync(applicationId: string, token: string): Pro
   }
 }
 
-async function handleStatusCommand(applicationId?: string, token?: string): Promise<APIGatewayProxyResult> {
-  // CRITICAL: Return deferred response to Discord IMMEDIATELY (must be < 3 seconds)
-  // We cannot await any async work before this return or Discord will timeout
-
-  // Start async work in background (don't await it)
-  if (applicationId && token) {
-    // Fire off the async operation - Lambda will keep running due to callbackWaitsForEmptyEventLoop
-    handleStatusCommandAsync(applicationId, token).catch(error => {
-      console.error('Error in handleStatusCommandAsync:', error);
-      sendFollowUpMessage(applicationId, token, {
-        content: '❌ An unexpected error occurred while checking server status. Please try again.',
-      }).catch(followUpError => {
-        console.error('Failed to send error follow-up message:', followUpError);
-      });
-    });
-  }
-
-  // Return immediately so Discord gets response within 3 seconds
-  return {
-    statusCode: 200,
-    body: JSON.stringify({
-      type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
-    }),
-  };
-}
-
-async function handleStatusCommandAsync(applicationId: string, token: string): Promise<void> {
-  console.log('handleStatusCommandAsync called with applicationId:', applicationId, 'token length:', token?.length);
-
-  // Always send an immediate working response regardless of AWS API status
-  try {
-    await sendFollowUpMessage(applicationId, token, {
-      embeds: [{
-        title: '📊 Checking Server Status...',
-        description: 'Getting server status information...',
-        color: 0xffaa00,
-        fields: [{
-          name: 'Status',
-          value: '🔄 Checking...',
-          inline: true,
-        }],
-        footer: {
-          text: 'HuginBot • This will update in a moment'
-        },
-        timestamp: new Date().toISOString(),
-      }],
-    });
-    console.log('✅ Initial status message sent successfully');
-  } catch (initialError) {
-    console.error('❌ Failed to send initial status message:', initialError);
-    // If we can't even send the initial message, try a simple fallback
-    try {
-      await sendFollowUpMessage(applicationId, token, {
-        content: '🔄 Checking server status...'
-      });
-    } catch (fallbackError) {
-      console.error('❌ Even fallback initial message failed:', fallbackError);
-      return; // Can't communicate with Discord at all
-    }
-  }
-
-  // Now try to get the actual server status
+async function handleStatusCommand(): Promise<APIGatewayProxyResult> {
   try {
     console.log(`📊 Getting server status details`);
 
@@ -811,155 +752,36 @@ async function handleStatusCommandAsync(applicationId: string, token: string): P
       });
     }
 
-    // Send the updated status response
-    await sendFollowUpMessage(applicationId, token, {
-      embeds: [{
-        title: 'Valheim Server Status',
-        description: fastMessage,
-        color: status === 'running' ? 0x00ff00 : status === 'stopped' ? 0xff0000 : status === 'unknown' ? 0xff6600 : 0xffaa00,
-        fields: fields,
-        footer: {
-          text: 'HuginBot • Use /start to launch the server'
-        },
-        timestamp: new Date().toISOString(),
-      }],
-      components: [{
-        type: 1,
-        components: [{
-          type: 2,
-          style: 2,
-          label: "Refresh Status",
-          custom_id: "status_refresh",
-          emoji: { name: "🔄" }
-        }]
-      }]
-    });
-
-    // Step 2: If server is running, try to get detailed status in background
-    // This won't block the user experience if it fails
-    if (status === 'running') {
-      // Use setTimeout to make this truly asynchronous and non-blocking
-      setTimeout(async () => {
-        try {
-          console.log(`📊 Checking for cached join code from EventBridge notifications`);
-          
-          // Try to get cached join code from SSM (set by EventBridge notifications)
-          let joinCode: string | undefined;
-          try {
-            const joinCodeParam = await ssmClient.send(new GetParameterCommand({
-              Name: '/huginbot/playfab-join-code'
-            }));
-            joinCode = joinCodeParam.Parameter?.Value;
-            console.log(`📊 Found cached join code: ${joinCode ? 'YES' : 'NO'}`);
-          } catch {
-            console.log(`📊 No cached join code available yet`);
-          }
-          
-          // Only send an update if we found a join code (something meaningful to show)
-          if (joinCode) {
-            let updatedFields = [
-              {
-                name: 'Status',
-                value: `${statusEmoji} ${status}`,
-                inline: true,
-              }
-            ];
-
-            if (launchTime) {
-              const uptimeMs = Date.now() - launchTime.getTime();
-              const uptimeMinutes = Math.floor(uptimeMs / (1000 * 60));
-              const uptimeHours = Math.floor(uptimeMinutes / 60);
-              const remainingMinutes = uptimeMinutes % 60;
-              
-              updatedFields.push({
-                name: 'Uptime',
-                value: uptimeHours > 0 ? `${uptimeHours}h ${remainingMinutes}m` : `${uptimeMinutes}m`,
-                inline: true,
-              });
-            }
-
-            updatedFields.push({
-              name: 'PlayFab Join Code',
-              value: `\`${joinCode}\``,
-              inline: false,
-            });
-
-            // Send updated response with join code
-            await sendFollowUpMessage(applicationId, token, {
-              embeds: [{
-                title: '🎮 Valheim Server Ready!',
-                description: 'Server is online and ready to play! Use the join code below to connect.',
-                color: 0x00ff00,
-                fields: updatedFields,
-                footer: {
-                  text: 'HuginBot • Server is ready to play!'
-                },
-                timestamp: new Date().toISOString(),
-              }],
-              components: [{
-                type: 1,
-                components: [{
-                  type: 2,
-                  style: 2,
-                  label: "Refresh Status",
-                  custom_id: "status_refresh",
-                  emoji: { name: "🔄" }
-                }]
-              }]
-            });
-          }
-          
-        } catch (detailError) {
-          console.log('Background detailed status check failed (this is OK):', detailError instanceof Error ? detailError.message : String(detailError));
-          // Silently fail - we already sent the basic status response
-        }
-      }, 100); // Small delay to ensure initial response is sent first
-    }
-    
-    console.log(`✅ Status command completed successfully`);
-
-  } catch (error) {
-    console.error('❌ Error getting server status details:', error);
-
-    // Even if AWS fails, try to send a user-friendly message
-    try {
-      await sendFollowUpMessage(applicationId, token, {
-        embeds: [{
-          title: 'Server Status',
-          description: 'Having trouble checking server status right now.',
-          color: 0xff6600,
-          fields: [{
-            name: 'Status',
-            value: '⚠️ Unknown (AWS API issue)',
-            inline: true,
+    // Return status immediately (like /hail does) - no deferred response needed
+    return {
+      statusCode: 200,
+      body: JSON.stringify({
+        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+        data: {
+          embeds: [{
+            title: 'Valheim Server Status',
+            description: fastMessage,
+            color: status === 'running' ? 0x00ff00 : status === 'stopped' ? 0xff0000 : status === 'unknown' ? 0xff6600 : 0xffaa00,
+            fields: fields,
+            footer: {
+              text: 'HuginBot • Use /start to launch the server'
+            },
+            timestamp: new Date().toISOString(),
           }],
-          footer: {
-            text: 'HuginBot • Try again in a few moments'
-          },
-          timestamp: new Date().toISOString(),
-        }],
-        components: [{
-          type: 1,
-          components: [{
-            type: 2,
-            style: 2,
-            label: "Refresh Status",
-            custom_id: "status_refresh",
-            emoji: { name: "🔄" }
-          }]
-        }]
-      });
-    } catch (followUpError) {
-      console.error('❌ Failed to send status error message:', followUpError);
-      // Final fallback - try just text
-      try {
-        await sendFollowUpMessage(applicationId, token, {
-          content: '⚠️ Status check temporarily unavailable. Please try again.'
-        });
-      } catch (finalError) {
-        console.error('❌ All status message attempts failed:', finalError);
-      }
-    }
+        },
+      }),
+    };
+  } catch (error) {
+    console.error('❌ Error in handleStatusCommand:', error);
+    return {
+      statusCode: 200,
+      body: JSON.stringify({
+        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+        data: {
+          content: '❌ Failed to get server status. Please try again.',
+        },
+      }),
+    };
   }
 }
 
@@ -1430,10 +1252,9 @@ async function handleSetupCommandAsync(guild_id: string, channel_id: string, app
 
 async function handleComponentInteraction(body: any): Promise<APIGatewayProxyResult> {
   const customId = body.data.custom_id;
-  const { application_id, token } = body;
-  
+
   if (customId === 'status_refresh') {
-    return await handleStatusCommand(application_id, token);
+    return await handleStatusCommand();
   }
   
   return {

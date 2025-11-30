@@ -676,9 +676,17 @@ EOF`,
         });
 
         // Grant EC2 permissions to the Commands Lambda function
-        const ec2Policy = new PolicyStatement({
+        // DescribeInstances is a list operation and doesn't support resource-level permissions
+        const ec2DescribePolicy = new PolicyStatement({
             actions: [
                 "ec2:DescribeInstances",
+            ],
+            resources: ["*"],
+        });
+
+        // Start/Stop operations can be scoped to specific instance
+        const ec2ControlPolicy = new PolicyStatement({
+            actions: [
                 "ec2:StartInstances",
                 "ec2:StopInstances",
             ],
@@ -720,7 +728,8 @@ EOF`,
             ]
         });
 
-        commandsFunction.addToRolePolicy(ec2Policy);
+        commandsFunction.addToRolePolicy(ec2DescribePolicy);
+        commandsFunction.addToRolePolicy(ec2ControlPolicy);
         commandsFunction.addToRolePolicy(ssmDocumentPolicy);
         commandsFunction.addToRolePolicy(ssmCommandPolicy);
         commandsFunction.addToRolePolicy(s3BackupPolicy);
