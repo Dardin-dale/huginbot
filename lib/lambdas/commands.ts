@@ -618,16 +618,84 @@ async function handleStatusCommand(): Promise<APIGatewayProxyResult> {
     const { status, message: fastMessage, launchTime } = await getFastServerStatus();
     console.log(`📊 Server status retrieved: ${status}`);
 
-    const statusEmoji = status === 'running' ? '✅' : status === 'stopped' ? '❌' : status === 'unknown' ? '⚠️' : '⏳';
+    // Try to get active world and join code from SSM
+    let activeWorld: string | undefined;
+    let joinCode: string | undefined;
 
-    let fields = [
+    if (status === 'running') {
+      try {
+        const worldResult = await ssmClient.send(new GetParameterCommand({
+          Name: SSM_PARAMS.ACTIVE_WORLD
+        }));
+        if (worldResult.Parameter?.Value) {
+          const worldConfig = JSON.parse(worldResult.Parameter.Value);
+          activeWorld = worldConfig.name || worldConfig.worldName;
+        }
+      } catch (err) {
+        console.log('No active world found in SSM');
+      }
+
+      try {
+        const joinCodeResult = await ssmClient.send(new GetParameterCommand({
+          Name: SSM_PARAMS.PLAYFAB_JOIN_CODE
+        }));
+        joinCode = joinCodeResult.Parameter?.Value;
+      } catch (err) {
+        console.log('No join code found yet - server may still be loading');
+      }
+    }
+
+    // Determine server state
+    let statusEmoji: string;
+    let statusText: string;
+    let description: string;
+    let embedColor: number;
+
+    if (status === 'stopped') {
+      statusEmoji = '❌';
+      statusText = 'Stopped';
+      description = 'The server is currently offline.';
+      embedColor = 0xff0000;
+    } else if (status === 'running' && joinCode) {
+      statusEmoji = '✅';
+      statusText = 'Ready to Play!';
+      description = 'The Valheim server is online and ready for adventure!';
+      embedColor = 0x00ff00;
+    } else if (status === 'running') {
+      statusEmoji = '🔄';
+      statusText = 'Booting';
+      description = 'EC2 instance is running, Valheim server is loading...\n_This usually takes 2-4 minutes after EC2 starts._';
+      embedColor = 0xffaa00;
+    } else if (status === 'pending') {
+      statusEmoji = '⏳';
+      statusText = 'Starting';
+      description = 'EC2 instance is booting up...';
+      embedColor = 0xffaa00;
+    } else {
+      statusEmoji = '⚠️';
+      statusText = 'Unknown';
+      description = fastMessage;
+      embedColor = 0xff6600;
+    }
+
+    let fields: Array<{name: string, value: string, inline: boolean}> = [
       {
         name: 'Status',
-        value: `${statusEmoji} ${status}`,
+        value: `${statusEmoji} ${statusText}`,
         inline: true,
       }
     ];
 
+    // Add world info if available
+    if (activeWorld) {
+      fields.push({
+        name: 'World',
+        value: `🌍 ${activeWorld}`,
+        inline: true,
+      });
+    }
+
+    // Add uptime if running
     if (status === 'running' && launchTime) {
       const uptimeMs = Date.now() - launchTime.getTime();
       const uptimeMinutes = Math.floor(uptimeMs / (1000 * 60));
@@ -641,7 +709,20 @@ async function handleStatusCommand(): Promise<APIGatewayProxyResult> {
       });
     }
 
-    // Return status immediately (like /hail does) - no deferred response needed
+    // Add join code if available
+    if (joinCode) {
+      fields.push({
+        name: 'Join Code',
+        value: `\`${joinCode}\``,
+        inline: false,
+      });
+      fields.push({
+        name: 'How to Join',
+        value: '1. Open Valheim\n2. Select "Join Game"\n3. Choose "Join by code"\n4. Enter the code above',
+        inline: false,
+      });
+    }
+
     return {
       statusCode: 200,
       body: JSON.stringify({
@@ -649,11 +730,11 @@ async function handleStatusCommand(): Promise<APIGatewayProxyResult> {
         data: {
           embeds: [{
             title: 'Valheim Server Status',
-            description: fastMessage,
-            color: status === 'running' ? 0x00ff00 : status === 'stopped' ? 0xff0000 : status === 'unknown' ? 0xff6600 : 0xffaa00,
+            description: description,
+            color: embedColor,
             fields: fields,
             footer: {
-              text: 'HuginBot • Use /start to launch the server'
+              text: joinCode ? 'HuginBot • Use /stop when done playing' : 'HuginBot • Use /start to launch the server'
             },
             timestamp: new Date().toISOString(),
           }],
