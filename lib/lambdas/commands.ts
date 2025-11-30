@@ -267,7 +267,7 @@ export async function handler(
     
     // Handle slash commands
     if (body.type === InteractionType.APPLICATION_COMMAND) {
-      const { data, guild_id, application_id, token } = body;
+      const { data, guild_id } = body;
       const command = data.name;
 
       console.log(`Processing command: ${command}`);
@@ -276,12 +276,12 @@ export async function handler(
         case 'start':
           const worldName = data.options?.find((opt: any) => opt.name === 'world')?.value;
           if (worldName) {
-            return await handleStartCommand(worldName, guild_id, application_id, token);
+            return await handleStartCommand(worldName, guild_id);
           } else {
-            return await handleStartCommand(undefined, guild_id, application_id, token);
+            return await handleStartCommand(undefined, guild_id);
           }
         case 'stop':
-          return await handleStopCommand(application_id, token);
+          return await handleStopCommand();
         case 'status':
           return await handleStatusCommand();
         case 'worlds':
@@ -333,123 +333,93 @@ export async function handler(
 }
 
 // Discord-compatible command handlers
-async function handleStartCommand(worldName?: string, guildId?: string, applicationId?: string, token?: string): Promise<APIGatewayProxyResult> {
-  // Start async work in background (don't await it)
-  if (applicationId && token) {
-    // Fire off the async operation - Lambda will keep running due to callbackWaitsForEmptyEventLoop
-    handleStartCommandAsync(worldName, guildId, applicationId, token).catch(error => {
-      console.error('Error in handleStartCommandAsync:', error);
-    });
-  }
-
-  // Return immediately so Discord gets response within 3 seconds
-  return {
-    statusCode: 200,
-    body: JSON.stringify({
-      type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
-    }),
-  };
-}
-
-async function handleStartCommandAsync(worldName?: string, guildId?: string, applicationId?: string, token?: string): Promise<void> {
-  if (!applicationId || !token) {
-    console.error('Missing applicationId or token for follow-up message');
-    return;
-  }
-
-  // Always send an immediate "working on it" response
-  try {
-    await sendFollowUpMessage(applicationId, token, {
-      embeds: [{
-        title: '🚀 Starting Server...',
-        description: 'Initiating server startup process...',
-        color: 0xffaa00,
-        fields: [{
-          name: 'Status',
-          value: '🔄 Checking current state...',
-          inline: true,
-        }],
-        footer: {
-          text: 'HuginBot • This will update in a moment'
-        },
-        timestamp: new Date().toISOString(),
-      }],
-    });
-    console.log('✅ Initial start message sent successfully');
-  } catch (initialError) {
-    console.error('❌ Failed to send initial start message:', initialError);
-    // Try a simple fallback
-    try {
-      await sendFollowUpMessage(applicationId, token, {
-        content: '🚀 Starting server...'
-      });
-    } catch (fallbackError) {
-      console.error('❌ Even fallback initial message failed:', fallbackError);
-      return; // Can't communicate with Discord at all
-    }
-  }
-
+async function handleStartCommand(worldName?: string, guildId?: string): Promise<APIGatewayProxyResult> {
   try {
     console.log(`🚀 Starting server command - worldName: ${worldName}, guildId: ${guildId}`);
 
-    // Check status with our improved getFastServerStatus
+    // Check current status
     const { status } = await getFastServerStatus();
-    
     console.log(`📊 Current instance status: ${status}`);
-    
+
     if (status === 'running') {
-      await sendFollowUpMessage(applicationId, token, {
-        content: '✅ Server is already running!',
-      });
-      return;
+      return {
+        statusCode: 200,
+        body: JSON.stringify({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            embeds: [{
+              title: '✅ Server Already Running',
+              description: 'The Valheim server is already online!',
+              color: 0x00ff00,
+              footer: { text: 'HuginBot • Use /status to see server details' }
+            }]
+          }
+        })
+      };
     }
 
     if (status === 'pending') {
-      await sendFollowUpMessage(applicationId, token, {
-        content: '🚀 Server is already starting!',
-      });
-      return;
+      return {
+        statusCode: 200,
+        body: JSON.stringify({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            embeds: [{
+              title: '🚀 Server Already Starting',
+              description: 'The server is currently booting up. Please wait a moment.',
+              color: 0xffaa00,
+              footer: { text: 'HuginBot • You\'ll be notified when the join code is ready' }
+            }]
+          }
+        })
+      };
     }
 
-    // Handle world configuration 
+    // Handle world configuration
     let selectedWorldConfig: WorldConfig | undefined;
-    
+
     if (worldName) {
-      // Find specific world by name
-      selectedWorldConfig = WORLD_CONFIGS.find(w => 
-        w.name.toLowerCase() === worldName.toLowerCase() || 
+      selectedWorldConfig = WORLD_CONFIGS.find(w =>
+        w.name.toLowerCase() === worldName.toLowerCase() ||
         w.worldName.toLowerCase() === worldName.toLowerCase()
       );
-      
+
       if (!selectedWorldConfig) {
-        await sendFollowUpMessage(applicationId, token, {
-          content: `❌ World "${worldName}" not found. Use /worlds list to see available worlds.`,
-        });
-        return;
+        return {
+          statusCode: 200,
+          body: JSON.stringify({
+            type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+            data: {
+              content: `❌ World "${worldName}" not found. Use /worlds list to see available worlds.`
+            }
+          })
+        };
       }
     } else if (guildId) {
-      // Find worlds for this Discord server
       const discordWorlds = WORLD_CONFIGS.filter(w => w.discordServerId === guildId);
-      
       if (discordWorlds.length > 0) {
-        // Use the first world for this Discord server
         selectedWorldConfig = discordWorlds[0];
       }
     }
-    
+
     if (selectedWorldConfig) {
       console.log(`🌍 Selected world: ${selectedWorldConfig.name} (${selectedWorldConfig.worldName})`);
-      
+
       const validationErrors = validateWorldConfig(selectedWorldConfig);
       if (validationErrors.length > 0) {
-        await sendFollowUpMessage(applicationId, token, {
-          content: `❌ Invalid world configuration: ${validationErrors.join(', ')}`,
-        });
-        return;
+        return {
+          statusCode: 200,
+          body: JSON.stringify({
+            type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+            data: {
+              content: `❌ Invalid world configuration: ${validationErrors.join(', ')}`
+            }
+          })
+        };
       }
-      
+
       // Store active world configuration
-      await withRetry(() => 
+      await withRetry(() =>
         ssmClient.send(new PutParameterCommand({
           Name: SSM_PARAMS.ACTIVE_WORLD,
           Value: JSON.stringify(selectedWorldConfig),
@@ -460,12 +430,10 @@ async function handleStartCommandAsync(worldName?: string, guildId?: string, app
       console.log(`✅ Active world configuration saved`);
     }
 
-    // Clear any existing PlayFab join codes
+    // Clear any existing join code
     try {
       await withRetry(() =>
-        ssmClient.send(new DeleteParameterCommand({
-          Name: SSM_PARAMS.PLAYFAB_JOIN_CODE
-        }))
+        ssmClient.send(new DeleteParameterCommand({ Name: SSM_PARAMS.PLAYFAB_JOIN_CODE }))
       );
       console.log(`🧹 Cleared existing PlayFab join code`);
     } catch (err) {
@@ -481,160 +449,98 @@ async function handleStartCommandAsync(worldName?: string, guildId?: string, app
 
     const displayWorldName = selectedWorldConfig ? selectedWorldConfig.name : undefined;
 
-    await sendFollowUpMessage(applicationId, token, {
-      content: '🚀 Server start command sent!',
-      embeds: [{
-        title: '🚀 Valheim Server Starting',
-        description: 'Server startup initiated successfully!\n\n' +
-                    '**What happens next:**\n' +
-                    '🔄 EC2 instance boots (30-60 seconds)\n' +
-                    '📦 Docker container starts (1-2 minutes)\n' +
-                    '🎮 Valheim server loads (2-3 minutes)\n' +
-                    '🔗 Join code gets posted here automatically\n\n' +
-                    '💡 **You don\'t need to do anything** - notifications will appear here!',
-        color: 0x00ff00,
-        fields: displayWorldName ? [{
-          name: '🌍 World',
-          value: displayWorldName,
-          inline: true,
-        }, {
-          name: '⏱️ Est. Time',
-          value: '3-5 minutes',
-          inline: true
-        }] : [{
-          name: '⏱️ Est. Time',
-          value: '3-5 minutes',
-          inline: true
-        }],
-        footer: {
-          text: 'HuginBot • Auto-notifications enabled'
-        },
-        timestamp: new Date().toISOString(),
-      }],
-    });
-    
-    console.log(`✅ Start command completed successfully`);
-    
+    return {
+      statusCode: 200,
+      body: JSON.stringify({
+        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+        data: {
+          embeds: [{
+            title: '🚀 Valheim Server Starting',
+            description: 'Server startup initiated successfully!\n\n' +
+                        '**Timeline:**\n' +
+                        '🔄 EC2 instance boots (30-60 seconds)\n' +
+                        '📦 Docker container starts (1-2 minutes)\n' +
+                        '🎮 Valheim server loads (2-3 minutes)\n\n' +
+                        '**You\'ll get a notification here with the join code when the server is ready!**\n\n' +
+                        '💡 Sit back and relax - everything is automatic from here.',
+            color: 0x00ff00,
+            fields: displayWorldName ? [{
+              name: '🌍 World',
+              value: displayWorldName,
+              inline: true,
+            }] : [],
+            footer: {
+              text: 'HuginBot • Auto-notifications enabled'
+            },
+            timestamp: new Date().toISOString(),
+          }]
+        }
+      })
+    };
+
   } catch (error) {
-    console.error('❌ Error in handleStartCommandAsync:', error);
-
-    // Even if AWS fails, try to send a user-friendly message
-    try {
-      await sendFollowUpMessage(applicationId, token, {
-        embeds: [{
-          title: '🚀 Server Start Issue',
-          description: 'Having trouble starting the server right now.',
-          color: 0xff6600,
-          fields: [{
-            name: 'Status',
-            value: '⚠️ Start command failed',
-            inline: true,
-          }, {
-            name: 'Next Steps',
-            value: 'Please try again in a few moments',
-            inline: true,
-          }],
-          footer: {
-            text: 'HuginBot • Contact admin if this persists'
-          },
-          timestamp: new Date().toISOString(),
-        }],
-      });
-    } catch (followUpError) {
-      console.error('❌ Failed to send start error message:', followUpError);
-      // Final fallback - try just text
-      try {
-        await sendFollowUpMessage(applicationId, token, {
-          content: '⚠️ Server start failed. Please try again in a few moments.'
-        });
-      } catch (finalError) {
-        console.error('❌ All start message attempts failed:', finalError);
-      }
-    }
+    console.error('❌ Error in handleStartCommand:', error);
+    return {
+      statusCode: 200,
+      body: JSON.stringify({
+        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+        data: {
+          embeds: [{
+            title: '❌ Server Start Failed',
+            description: 'Unable to start the server right now. Please try again in a moment.',
+            color: 0xff0000,
+            footer: { text: 'HuginBot • Contact admin if this persists' }
+          }]
+        }
+      })
+    };
   }
 }
 
-async function handleStopCommand(applicationId?: string, token?: string): Promise<APIGatewayProxyResult> {
-  // Start async work in background (don't await it)
-  if (applicationId && token) {
-    // Fire off the async operation - Lambda will keep running due to callbackWaitsForEmptyEventLoop
-    handleStopCommandAsync(applicationId, token).catch(error => {
-      console.error('Error in handleStopCommandAsync:', error);
-      sendFollowUpMessage(applicationId, token, {
-        content: '❌ An unexpected error occurred while stopping the server. Please try again.',
-      }).catch(followUpError => {
-        console.error('Failed to send error follow-up message:', followUpError);
-      });
-    });
-  }
 
-  // Return immediately so Discord gets response within 3 seconds
-  return {
-    statusCode: 200,
-    body: JSON.stringify({
-      type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
-    }),
-  };
-}
-
-async function handleStopCommandAsync(applicationId: string, token: string): Promise<void> {
-  console.log('handleStopCommandAsync called with applicationId:', applicationId, 'token length:', token?.length);
-
-  // Always send an immediate "working on it" response
-  try {
-    await sendFollowUpMessage(applicationId, token, {
-      embeds: [{
-        title: '🛑 Stopping Server...',
-        description: 'Initiating server shutdown process...',
-        color: 0xffaa00,
-        fields: [{
-          name: 'Status',
-          value: '🔄 Checking current state...',
-          inline: true,
-        }],
-        footer: {
-          text: 'HuginBot • This will update in a moment'
-        },
-        timestamp: new Date().toISOString(),
-      }],
-    });
-    console.log('✅ Initial stop message sent successfully');
-  } catch (initialError) {
-    console.error('❌ Failed to send initial stop message:', initialError);
-    // Try a simple fallback
-    try {
-      await sendFollowUpMessage(applicationId, token, {
-        content: '🛑 Stopping server...'
-      });
-    } catch (fallbackError) {
-      console.error('❌ Even fallback initial message failed:', fallbackError);
-      return; // Can't communicate with Discord at all
-    }
-  }
-
+async function handleStopCommand(): Promise<APIGatewayProxyResult> {
   try {
     console.log(`🛑 Stopping server command initiated`);
 
-    // Check status with our improved getFastServerStatus
+    // Check current status
     const { status } = await getFastServerStatus();
-    
     console.log(`📊 Current instance status: ${status}`);
-    
+
     if (status === 'stopped') {
-      await sendFollowUpMessage(applicationId, token, {
-        content: '❌ Server is already stopped.',
-      });
-      return;
+      return {
+        statusCode: 200,
+        body: JSON.stringify({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            embeds: [{
+              title: '❌ Server Already Stopped',
+              description: 'The server is not currently running.',
+              color: 0xff6600,
+              footer: { text: 'HuginBot • Use /start to launch the server' }
+            }]
+          }
+        })
+      };
     }
 
     if (status === 'stopping') {
-      await sendFollowUpMessage(applicationId, token, {
-        content: '🛑 Server is already stopping.',
-      });
-      return;
+      return {
+        statusCode: 200,
+        body: JSON.stringify({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            embeds: [{
+              title: '🛑 Server Already Stopping',
+              description: 'The server is currently shutting down. Please wait.',
+              color: 0xffaa00,
+              footer: { text: 'HuginBot' }
+            }]
+          }
+        })
+      };
     }
 
-    // Trigger backup before shutdown using container's built-in backup system
+    // Trigger backup before shutdown
     console.log(`💾 Triggering pre-shutdown backup`);
     try {
       await withRetry(() => ssmClient.send(new SendCommandCommand({
@@ -645,9 +551,7 @@ async function handleStopCommandAsync(applicationId: string, token: string): Pro
             '# Trigger container backup using SIGHUP signal',
             'docker exec valheim-server pkill -HUP valheim-backup || true',
             '# Wait a moment for backup to start',
-            'sleep 5',
-            '# Check if backup is running (optional verification)',
-            'docker exec valheim-server pgrep -f valheim-backup && echo "Backup triggered successfully" || echo "Backup may have completed or failed"'
+            'sleep 5'
           ]
         },
         Comment: 'Pre-shutdown backup triggered via Discord stop command'
@@ -658,69 +562,54 @@ async function handleStopCommandAsync(applicationId: string, token: string): Pro
       // Don't block shutdown if backup fails
     }
 
+    // Stop the instance
     console.log(`🔄 Stopping EC2 instance: ${VALHEIM_INSTANCE_ID}`);
     await withRetry(() => ec2Client.send(new StopInstancesCommand({
       InstanceIds: [VALHEIM_INSTANCE_ID]
     })));
     console.log(`✅ EC2 instance stop command sent successfully`);
 
-    await sendFollowUpMessage(applicationId, token, {
-      content: '🛑 Server stop command sent!',
-      embeds: [{
-        title: '🛑 Valheim Server Stopping',
-        description: '**Server shutdown initiated:**\n' +
-                    '💾 Backup triggered (if players online)\n' +
-                    '⚠️ Players have ~30 seconds to save & exit\n' +
-                    '🔄 Server will shut down automatically\n\n' +
-                    '✅ You\'ll get a notification when shutdown completes.',
-        color: 0xff6600,
-        footer: {
-          text: 'HuginBot • Auto-notifications enabled'
-        },
-        timestamp: new Date().toISOString(),
-      }],
-    });
-    
-    console.log(`✅ Stop command completed successfully`);
-    
-  } catch (error) {
-    console.error('❌ Error in handleStopCommandAsync:', error);
+    return {
+      statusCode: 200,
+      body: JSON.stringify({
+        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+        data: {
+          embeds: [{
+            title: '🛑 Valheim Server Stopping',
+            description: '**Server shutdown initiated:**\n' +
+                        '💾 Backup triggered\n' +
+                        '⚠️ Players have ~30 seconds to save & exit\n' +
+                        '🔄 Server shutting down\n\n' +
+                        'The server will be fully stopped in a few moments.',
+            color: 0xff6600,
+            footer: {
+              text: 'HuginBot • Use /start when you want to play again'
+            },
+            timestamp: new Date().toISOString(),
+          }]
+        }
+      })
+    };
 
-    // Even if AWS fails, try to send a user-friendly message
-    try {
-      await sendFollowUpMessage(applicationId, token, {
-        embeds: [{
-          title: '🛑 Server Stop Issue',
-          description: 'Having trouble stopping the server right now.',
-          color: 0xff6600,
-          fields: [{
-            name: 'Status',
-            value: '⚠️ Stop command failed',
-            inline: true,
-          }, {
-            name: 'Next Steps',
-            value: 'Please try again in a few moments',
-            inline: true,
-          }],
-          footer: {
-            text: 'HuginBot • Contact admin if this persists'
-          },
-          timestamp: new Date().toISOString(),
-        }],
-      });
-    } catch (followUpError) {
-      console.error('❌ Failed to send stop error message:', followUpError);
-      // Final fallback - try just text
-      try {
-        await sendFollowUpMessage(applicationId, token, {
-          content: '⚠️ Server stop failed. Please try again in a few moments.'
-        });
-      } catch (finalError) {
-        console.error('❌ All stop message attempts failed:', finalError);
-      }
-    }
+  } catch (error) {
+    console.error('❌ Error in handleStopCommand:', error);
+    return {
+      statusCode: 200,
+      body: JSON.stringify({
+        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+        data: {
+          embeds: [{
+            title: '❌ Server Stop Failed',
+            description: 'Unable to stop the server right now. Please try again in a moment.',
+            color: 0xff0000,
+            footer: { text: 'HuginBot • Contact admin if this persists' }
+          }]
+        }
+      })
+    };
   }
 }
+
 
 async function handleStatusCommand(): Promise<APIGatewayProxyResult> {
   try {
