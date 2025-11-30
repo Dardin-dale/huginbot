@@ -146,3 +146,4 @@ The project is an aws harness for the https://github.com/lloesche/valheim-server
 - Billing and metering integration
 - Enhanced security boundaries
 - Account management systems
+- The fargate and EFS valheim comes from my groups active game server, Do not delete!

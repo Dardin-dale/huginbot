@@ -1,0 +1,210 @@
+2025-06-24T02:31:46.016Z
+2025-06-24T02:31:46.016Z	1b5d12a3-ba62-4140-bc5b-f61b54f5a957	INFO	📊 Status check command initiated with progressive loading
+
+2025-06-24T02:31:46.016Z 1b5d12a3-ba62-4140-bc5b-f61b54f5a957 INFO 📊 Status check command initiated with progressive loading
+2025-06-24T02:31:46.218Z
+END RequestId: 1b5d12a3-ba62-4140-bc5b-f61b54f5a957
+
+END RequestId: 1b5d12a3-ba62-4140-bc5b-f61b54f5a957
+2025-06-24T02:31:46.218Z
+REPORT RequestId: 1b5d12a3-ba62-4140-bc5b-f61b54f5a957	Duration: 242.62 ms	Billed Duration: 243 ms	Memory Size: 256 MB	Max Memory Used: 146 MB	Init Duration: 587.47 ms	
+
+REPORT RequestId: 1b5d12a3-ba62-4140-bc5b-f61b54f5a957 Duration: 242.62 ms Billed Duration: 243 ms Memory Size: 256 MB Max Memory Used: 146 MB Init Duration: 587.47 ms
+2025-06-24T02:32:40.126Z
+START RequestId: e401b089-84f9-409b-8ac0-9db20088dd43 Version: $LATEST
+2025-06-24T02:32:40.128Z
+2025-06-24T02:32:40.128Z	1b5d12a3-ba62-4140-bc5b-f61b54f5a957	ERROR	❌ Error in handleStatusCommandAsync: Error: getFastServerStatus timeout
+    at Timeout._onTimeout (/var/task/index.js:979:48)
+    at listOnTimeout (node:internal/timers:569:17)
+    at process.processTimers (node:internal/timers:512:7)
+
+2025-06-24T02:32:40.128Z 1b5d12a3-ba62-4140-bc5b-f61b54f5a957 ERROR ❌ Error in handleStatusCommandAsync: Error: getFastServerStatus timeout at Timeout._onTimeout (/var/task/index.js:979:48) at listOnTimeout (node:internal/timers:569:17) at process.processTimers (node:internal/timers:512:7)
+2025-06-24T02:32:40.129Z
+2025-06-24T02:32:40.129Z	1b5d12a3-ba62-4140-bc5b-f61b54f5a957	ERROR	Stack trace: Error: getFastServerStatus timeout
+    at Timeout._onTimeout (/var/task/index.js:979:48)
+    at listOnTimeout (node:internal/timers:569:17)
+    at process.processTimers (node:internal/timers:512:7)
+
+2025-06-24T02:32:40.129Z 1b5d12a3-ba62-4140-bc5b-f61b54f5a957 ERROR Stack trace: Error: getFastServerStatus timeout at Timeout._onTimeout (/var/task/index.js:979:48) at listOnTimeout (node:internal/timers:569:17) at process.processTimers (node:internal/timers:512:7)
+2025-06-24T02:32:40.135Z
+2025-06-24T02:32:40.135Z	1b5d12a3-ba62-4140-bc5b-f61b54f5a957	INFO	📤 Sending follow-up message to Discord webhook
+
+2025-06-24T02:32:40.135Z 1b5d12a3-ba62-4140-bc5b-f61b54f5a957 INFO 📤 Sending follow-up message to Discord webhook
+2025-06-24T02:32:40.455Z
+2025-06-24T02:32:40.455Z	e401b089-84f9-409b-8ac0-9db20088dd43	INFO	Event: 
+{
+    "resource": "/valheim/control",
+    "path": "/valheim/control",
+    "httpMethod": "POST",
+    "headers": {
+        "content-type": "application/json",
+        "Host": "9m1nhz9xb7.execute-api.us-west-2.amazonaws.com",
+        "User-Agent": "Discord-Interactions/1.0 (+https://discord.com)",
+        "X-Amzn-Trace-Id": "Root=1-685a0e48-7576fc675e3b57a07a6fcfbe",
+        "X-Forwarded-For": "35.237.4.214",
+        "X-Forwarded-Port": "443",
+        "X-Forwarded-Proto": "https",
+        "x-signature-ed25519": "07fd9ee4006d5948a90c1c4ce4c108573f5ae4ed1be9c5fbdd1aacf8e2c47bd33286ca83c5f12a01a04f93cc581eed3c432c8c816d976f96478dc79f9f456a00",
+        "x-signature-timestamp": "1750732359"
+    },
+    "multiValueHeaders": {
+        "content-type": [
+            "application/json"
+        ],
+        "Host": [
+            "9m1nhz9xb7.execute-api.us-west-2.amazonaws.com"
+        ],
+        "User-Agent": [
+            "Discord-Interactions/1.0 (+https://discord.com)"
+        ],
+        "X-Amzn-Trace-Id": [
+            "Root=1-685a0e48-7576fc675e3b57a07a6fcfbe"
+        ],
+        "X-Forwarded-For": [
+            "35.237.4.214"
+        ],
+        "X-Forwarded-Port": [
+            "443"
+        ],
+        "X-Forwarded-Proto": [
+            "https"
+        ],
+        "x-signature-ed25519": [
+            "07fd9ee4006d5948a90c1c4ce4c108573f5ae4ed1be9c5fbdd1aacf8e2c47bd33286ca83c5f12a01a04f93cc581eed3c432c8c816d976f96478dc79f9f456a00"
+        ],
+        "x-signature-timestamp": [
+            "1750732359"
+        ]
+    },
+    "queryStringParameters": null,
+    "multiValueQueryStringParameters": null,
+    "pathParameters": null,
+    "stageVariables": null,
+    "requestContext": {
+        "resourceId": "6reffj",
+        "resourcePath": "/valheim/control",
+        "httpMethod": "POST",
+        "extendedRequestId": "MpcrVGLpvHcEZ1w=",
+        "requestTime": "24/Jun/2025:02:32:40 +0000",
+        "path": "/prod/valheim/control",
+        "accountId": "770508626944",
+        "protocol": "HTTP/1.1",
+        "stage": "prod",
+        "domainPrefix": "9m1nhz9xb7",
+        "requestTimeEpoch": 1750732360111,
+        "requestId": "27c93510-2d11-4287-9717-6d5ab17e5eaa",
+        "identity": {
+            "cognitoIdentityPoolId": null,
+            "accountId": null,
+            "cognitoIdentityId": null,
+            "caller": null,
+            "sourceIp": "35.237.4.214",
+            "principalOrgId": null,
+            "accessKey": null,
+            "cognitoAuthenticationType": null,
+            "cognitoAuthenticationProvider": null,
+            "userArn": null,
+            "userAgent": "Discord-Interactions/1.0 (+https://discord.com)",
+            "user": null
+        },
+        "domainName": "9m1nhz9xb7.execute-api.us-west-2.amazonaws.com",
+        "deploymentId": "qi0cd5",
+        "apiId": "9m1nhz9xb7"
+    },
+    "body": "{\"app_permissions\":\"2248475076447809\",\"application_id\":\"1094172408103063563\",\"attachment_size_limit\":10485760,\"authorizing_integration_owners\":{\"0\":\"1085035922208342148\"},\"channel\":{\"flags\":0,\"guild_id\":\"1085035922208342148\",\"icon_emoji\":{\"id\":null,\"name\":\"🧪\"},\"id\":\"1085270430593589338\",\"last_message_id\":\"1386896555877077082\",\"last_pin_timestamp\":\"2023-04-06T23:58:35+00:00\",\"name\":\"server-experiments\",\"nsfw\":false,\"parent_id\":\"1085035923005243463\",\"permissions\":\"2251799813685247\",\"position\":1,\"rate_limit_per_user\":0,\"theme_color\":null,\"topic\":null,\"type\":0},\"channel_id\":\"1085270430593589338\",\"context\":0,\"data\":{\"id\":\"1381049812711116813\",\"name\":\"worlds\",\"options\":[{\"name\":\"list\",\"options\":[],\"type\":1}],\"type\":1},\"entitlement_sku_ids\":[],\"entitlements\":[],\"guild\":{\"features\":[\"TIERLESS_BOOSTING_SYSTEM_MESSAGE\",\"CHANNEL_ICON_EMOJIS_GENERATED\"],\"id\":\"1085035922208342148\",\"locale\":\"en-US\"},\"guild_id\":\"1085035922208342148\",\"guild_locale\":\"en-US\",\"id\":\"1386896780670799922\",\"locale\":\"en-US\",\"member\":{\"avatar\":null,\"banner\":null,\"communication_disabled_until\":null,\"deaf\":false,\"flags\":0,\"joined_at\":\"2023-03-14T03:06:32.468000+00:00\",\"mute\":false,\"nick\":null,\"pending\":false,\"permissions\":\"2251799813685247\",\"premium_since\":null,\"roles\":[\"1085269135795167282\"],\"unusual_dm_activity_until\":null,\"user\":{\"avatar\":\"fda3e5a178ab3c95fb8ef1c65787abfe\",\"avatar_decoration_data\":null,\"clan\":null,\"collectibles\":null,\"discriminator\":\"0\",\"global_name\":\"Cufflink\",\"id\":\"433484689144152065\",\"primary_guild\":null,\"public_flags\":0,\"username\":\".cufflink\"}},\"token\":\"aW50ZXJhY3Rpb246MTM4Njg5Njc4MDY3MDc5OTkyMjpTcUtxQ0owdXJwNlppaW5VYmowQUJkNm1laG1kdHhOODZhd3dUUkU2RHM2U1dGV0FSTEJCWFF5akhOTkxGZkFub2pnWVlldkMweXJ3V2tKZE85QjZpbGxXRkdRbFI1dkVxWkFTVE1VWFRoQmRlMkl5aXBTeFVGT0R3Z0RqZnpwdg\",\"type\":2,\"version\":1}",
+    "isBase64Encoded": false
+}
+
+
+2025-06-24T02:32:40.455Z e401b089-84f9-409b-8ac0-9db20088dd43 INFO Event: { "resource": "/valheim/control", "path": "/valheim/control", "httpMethod": "POST", "headers": { "content-type": "application/json", "Host": "9m1nhz9xb7.execute-api.us-west-2.amazonaws.com", "User-Agent": "Discord-Interactions/1.0 (+https://discord.com)", "X-Amzn-Trace-Id": "Root=1-685a0e48-7576fc675e3b57a07a6fcfbe", "X-Forwarded-For": "35.237.4.214", "X-Forwarded-Port": "443", "X-Forwarded-Proto": "https", "x-signature-ed25519": "07fd9ee4006d5948a90c1c4ce4c108573f5ae4ed1be9c5fbdd1aacf8e2c47bd33286ca83c5f12a01a04f93cc581eed3c432c8c816d976f96478dc79f9f456a00", "x-signature-timestamp": "1750732359" }, "multiValueHeaders": { "content-type": [ "application/json" ], "Host": [ "9m1nhz9xb7.execute-api.us-west-2.amazonaws.com" ], "User-Agent": [ "Discord-Interactions/1.0 (+https://discord.com)" ], "X-Amzn-Trace-Id": [ "Root=1-685a0e48-7576fc675e3b57a07a6fcfbe" ], "X-Forwarded-For": [ "35.237.4.214" ], "X-Forwarded-Port": [ "443" ], "X-Forwarded-Proto": [ "https" ], "x-signature-ed25519": [ "07fd9ee4006d5948a90c1c4ce4c108573f5ae4ed1be9c5fbdd1aacf8e2c47bd33286ca83c5f12a01a04f93cc581eed3c432c8c816d976f96478dc79f9f456a00" ], "x-signature-timestamp": [ "1750732359" ] }, "queryStringParameters": null, "multiValueQueryStringParameters": null, "pathParameters": null, "stageVariables": null, "requestContext": { "resourceId": "6reffj", "resourcePath": "/valheim/control", "httpMethod": "POST", "extendedRequestId": "MpcrVGLpvHcEZ1w=", "requestTime": "24/Jun/2025:02:32:40 +0000", "path": "/prod/valheim/control", "accountId": "770508626944", "protocol": "HTTP/1.1", "stage": "prod", "domainPrefix": "9m1nhz9xb7", "requestTimeEpoch": 1750732360111, "requestId": "27c93510-2d11-4287-9717-6d5ab17e5eaa", "identity": { "cognitoIdentityPoolId": null, "accountId": null, "cognitoIdentityId": null, "caller": null, "sourceIp": "35.237.4.214", "principalOrgId": null, "accessKey": null, "cognitoAuthenticationType": null, "cognitoAuthenticationProvider": null, "userArn": null, "userAgent": "Discord-Interactions/1.0 (+https://discord.com)", "user": null }, "domainName": "9m1nhz9xb7.execute-api.us-west-2.amazonaws.com", "deploymentId": "qi0cd5", "apiId": "9m1nhz9xb7" }, "body": "{\"app_permissions\":\"2248475076447809\",\"application_id\":\"1094172408103063563\",\"attachment_size_limit\":10485760,\"authorizing_integration_owners\":{\"0\":\"1085035922208342148\"},\"channel\":{\"flags\":0,\"guild_id\":\"1085035922208342148\",\"icon_emoji\":{\"id\":null,\"name\":\"🧪\"},\"id\":\"1085270430593589338\",\"last_message_id\":\"1386896555877077082\",\"last_pin_timestamp\":\"2023-04-06T23:58:35+00:00\",\"name\":\"server-experiments\",\"nsfw\":false,\"parent_id\":\"1085035923005243463\",\"permissions\":\"2251799813685247\",\"position\":1,\"rate_limit_per_user\":0,\"theme_color\":null,\"topic\":null,\"type\":0},\"channel_id\":\"1085270430593589338\",\"context\":0,\"data\":{\"id\":\"1381049812711116813\",\"name\":\"worlds\",\"options\":[{\"name\":\"list\",\"options\":[],\"type\":1}],\"type\":1},\"entitlement_sku_ids\":[],\"entitlements\":[],\"guild\":{\"features\":[\"TIERLESS_BOOSTING_SYSTEM_MESSAGE\",\"CHANNEL_ICON_EMOJIS_GENERATED\"],\"id\":\"1085035922208342148\",\"locale\":\"en-US\"},\"guild_id\":\"1085035922208342148\",\"guild_locale\":\"en-US\",\"id\":\"1386896780670799922\",\"locale\":\"en-US\",\"member\":{\"avatar\":null,\"banner\":null,\"communication_disabled_until\":null,\"deaf\":false,\"flags\":0,\"joined_at\":\"2023-03-14T03:06:32.468000+00:00\",\"mute\":false,\"nick\":null,\"pending\":false,\"permissions\":\"2251799813685247\",\"premium_since\":null,\"roles\":[\"1085269135795167282\"],\"unusual_dm_activity_until\":null,\"user\":{\"avatar\":\"fda3e5a178ab3c95fb8ef1c65787abfe\",\"avatar_decoration_data\":null,\"clan\":null,\"collectibles\":null,\"discriminator\":\"0\",\"global_name\":\"Cufflink\",\"id\":\"433484689144152065\",\"primary_guild\":null,\"public_flags\":0,\"username\":\".cufflink\"}},\"token\":\"aW50ZXJhY3Rpb246MTM4Njg5Njc4MDY3MDc5OTkyMjpTcUtxQ0owdXJwNlppaW5VYmowQUJkNm1laG1kdHhOODZhd3dUUkU2RHM2U1dGV0FSTEJCWFF5akhOTkxGZkFub2pnWVlldkMweXJ3V2tKZE85QjZpbGxXRkdRbFI1dkVxWkFTVE1VWFRoQmRlMkl5aXBTeFVGT0R3Z0RqZnpwdg\",\"type\":2,\"version\":1}", "isBase64Encoded": false }
+2025-06-24T02:32:40.518Z
+2025-06-24T02:32:40.518Z e401b089-84f9-409b-8ac0-9db20088dd43 INFO Processing command: worlds
+2025-06-24T02:32:40.537Z
+END RequestId: e401b089-84f9-409b-8ac0-9db20088dd43
+2025-06-24T02:32:40.537Z
+REPORT RequestId: e401b089-84f9-409b-8ac0-9db20088dd43 Duration: 410.52 ms Billed Duration: 411 ms Memory Size: 256 MB Max Memory Used: 146 MB
+2025-06-24T02:33:52.200Z
+START RequestId: e6b485cb-a094-462b-8fd3-8db6f68b3eb6 Version: $LATEST
+2025-06-24T02:33:52.318Z
+2025-06-24T02:33:52.318Z e401b089-84f9-409b-8ac0-9db20088dd43 INFO Retry attempt 1/3 after 1000ms
+2025-06-24T02:33:52.476Z
+2025-06-24T02:33:52.476Z e6b485cb-a094-462b-8fd3-8db6f68b3eb6 INFO Event: { "resource": "/valheim/control", "path": "/valheim/control", "httpMethod": "POST", "headers": { "content-type": "application/json", "Host": "9m1nhz9xb7.execute-api.us-west-2.amazonaws.com", "User-Agent": "Discord-Interactions/1.0 (+https://discord.com)", "X-Amzn-Trace-Id": "Root=1-685a0e90-0b997fec0166c378787a09c1", "X-Forwarded-For": "35.237.4.214", "X-Forwarded-Port": "443", "X-Forwarded-Proto": "https", "x-signature-ed25519": "2e4dfde97a11076826332de5783061ec8d4bf3d66e9c9f3c374d4b2344f07c98c72894417ed36f5910dc30a9ddec4f1d321fc488bdc0a8be3844090c00914e0c", "x-signature-timestamp": "1750732431" }, "multiValueHeaders": { "content-type": [ "application/json" ], "Host": [ "9m1nhz9xb7.execute-api.us-west-2.amazonaws.com" ], "User-Agent": [ "Discord-Interactions/1.0 (+https://discord.com)" ], "X-Amzn-Trace-Id": [ "Root=1-685a0e90-0b997fec0166c378787a09c1" ], "X-Forwarded-For": [ "35.237.4.214" ], "X-Forwarded-Port": [ "443" ], "X-Forwarded-Proto": [ "https" ], "x-signature-ed25519": [ "2e4dfde97a11076826332de5783061ec8d4bf3d66e9c9f3c374d4b2344f07c98c72894417ed36f5910dc30a9ddec4f1d321fc488bdc0a8be3844090c00914e0c" ], "x-signature-timestamp": [ "1750732431" ] }, "queryStringParameters": null, "multiValueQueryStringParameters": null, "pathParameters": null, "stageVariables": null, "requestContext": { "resourceId": "6reffj", "resourcePath": "/valheim/control", "httpMethod": "POST", "extendedRequestId": "Mpc2lFh6PHcEktA=", "requestTime": "24/Jun/2025:02:33:52 +0000", "path": "/prod/valheim/control", "accountId": "770508626944", "protocol": "HTTP/1.1", "stage": "prod", "domainPrefix": "9m1nhz9xb7", "requestTimeEpoch": 1750732432168, "requestId": "79fdf393-e4ea-4592-87d6-ef793e25d941", "identity": { "cognitoIdentityPoolId": null, "accountId": null, "cognitoIdentityId": null, "caller": null, "sourceIp": "35.237.4.214", "principalOrgId": null, "accessKey": null, "cognitoAuthenticationType": null, "cognitoAuthenticationProvider": null, "userArn": null, "userAgent": "Discord-Interactions/1.0 (+https://discord.com)", "user": null }, "domainName": "9m1nhz9xb7.execute-api.us-west-2.amazonaws.com", "deploymentId": "qi0cd5", "apiId": "9m1nhz9xb7" }, "body": "{\"app_permissions\":\"2248475076447809\",\"application_id\":\"1094172408103063563\",\"attachment_size_limit\":10485760,\"authorizing_integration_owners\":{\"0\":\"1085035922208342148\"},\"channel\":{\"flags\":0,\"guild_id\":\"1085035922208342148\",\"icon_emoji\":{\"id\":null,\"name\":\"🧪\"},\"id\":\"1085270430593589338\",\"last_message_id\":\"1386896783984033913\",\"last_pin_timestamp\":\"2023-04-06T23:58:35+00:00\",\"name\":\"server-experiments\",\"nsfw\":false,\"parent_id\":\"1085035923005243463\",\"permissions\":\"2251799813685247\",\"position\":1,\"rate_limit_per_user\":0,\"theme_color\":null,\"topic\":null,\"type\":0},\"channel_id\":\"1085270430593589338\",\"context\":0,\"data\":{\"id\":\"1381049812711116810\",\"name\":\"start\",\"options\":[{\"name\":\"world\",\"type\":3,\"value\":\"GjurdTest\"}],\"type\":1},\"entitlement_sku_ids\":[],\"entitlements\":[],\"guild\":{\"features\":[\"TIERLESS_BOOSTING_SYSTEM_MESSAGE\",\"CHANNEL_ICON_EMOJIS_GENERATED\"],\"id\":\"1085035922208342148\",\"locale\":\"en-US\"},\"guild_id\":\"1085035922208342148\",\"guild_locale\":\"en-US\",\"id\":\"1386897082836717588\",\"locale\":\"en-US\",\"member\":{\"avatar\":null,\"banner\":null,\"communication_disabled_until\":null,\"deaf\":false,\"flags\":0,\"joined_at\":\"2023-03-14T03:06:32.468000+00:00\",\"mute\":false,\"nick\":null,\"pending\":false,\"permissions\":\"2251799813685247\",\"premium_since\":null,\"roles\":[\"1085269135795167282\"],\"unusual_dm_activity_until\":null,\"user\":{\"avatar\":\"fda3e5a178ab3c95fb8ef1c65787abfe\",\"avatar_decoration_data\":null,\"clan\":null,\"collectibles\":null,\"discriminator\":\"0\",\"global_name\":\"Cufflink\",\"id\":\"433484689144152065\",\"primary_guild\":null,\"public_flags\":0,\"username\":\".cufflink\"}},\"token\":\"aW50ZXJhY3Rpb246MTM4Njg5NzA4MjgzNjcxNzU4ODp4R2F4b2Y2QVoyU3FrS3VXY3Y2Zk9vUm9FVkR1b3hMcURHOXpHam9JRHdTTjlXWURHMHhOZzJnS3ZFdFBLeXo1VDVvVGdxWXA3dmRUanJnaHRBaHVReXpKb3FKZFlHRGRJVXhEc25lMzB4RzNQMURtMzFuZ3p5d210eUUwMlhTbA\",\"type\":2,\"version\":1}", "isBase64Encoded": false }
+2025-06-24T02:33:52.515Z
+2025-06-24T02:33:52.515Z e6b485cb-a094-462b-8fd3-8db6f68b3eb6 ERROR ❌ Error sending follow-up message: TypeError: fetch failed at node:internal/deps/undici/undici:12625:11 at async sendFollowUpMessage (/var/task/index.js:564:22) at async handleStatusCommandAsync (/var/task/index.js:1117:7) { cause: SocketError: other side closed at TLSSocket.onSocketEnd (node:internal/deps/undici/undici:9176:26) at TLSSocket.emit (node:events:529:35) at endReadableNT (node:internal/streams/readable:1400:12) at process.processTicksAndRejections (node:internal/process/task_queues:82:21) { code: 'UND_ERR_SOCKET', socket: { localAddress: '169.254.100.6', localPort: 36424, remoteAddress: '162.159.137.232', remotePort: 443, remoteFamily: 'IPv4', timeout: undefined, bytesWritten: 853, bytesRead: 0 } } }
+2025-06-24T02:33:52.516Z
+2025-06-24T02:33:52.516Z e6b485cb-a094-462b-8fd3-8db6f68b3eb6 ERROR Follow-up URL: https://discord.com/api/v10/webhooks/1094172408103063563/aW50ZXJhY3Rpb246MTM4Njg5NjU1MDI0ODA1ODk5MzpEY0FXbHBma3VlQnRWMWJkOVZXQmp2bFlVcjdxTDBzaTFhTTdlU2pxd1Z5YVNWd2RzWjBNMzAzRmxqYjN2cE1HcENOYlQyV3FpRkFOQWdJNlJZY1QyZmVhU1lTNWl2UFZUZmxMUUVEM21RVG9Lb3AyM2FsejVxcVl3UjNONk9xZg
+2025-06-24T02:33:52.516Z
+2025-06-24T02:33:52.516Z	e6b485cb-a094-462b-8fd3-8db6f68b3eb6	ERROR	Content: 
+{
+    "content": "❌ Failed to check server status: getFastServerStatus timeout",
+    "embeds": [
+        {
+            "title": "Status Check Failed",
+            "description": "There was an error checking the server status. Please try again.",
+            "color": 16711680,
+            "fields": [
+                {
+                    "name": "Error Details",
+                    "value": "getFastServerStatus timeout",
+                    "inline": false
+                }
+            ],
+            "footer": {
+                "text": "HuginBot • Contact administrator if this persists"
+            }
+        }
+    ]
+}
+
+
+2025-06-24T02:33:52.516Z e6b485cb-a094-462b-8fd3-8db6f68b3eb6 ERROR Content: { "content": "❌ Failed to check server status: getFastServerStatus timeout", "embeds": [ { "title": "Status Check Failed", "description": "There was an error checking the server status. Please try again.", "color": 16711680, "fields": [ { "name": "Error Details", "value": "getFastServerStatus timeout", "inline": false } ], "footer": { "text": "HuginBot • Contact administrator if this persists" } } ] }
+2025-06-24T02:33:52.516Z
+2025-06-24T02:33:52.516Z	e6b485cb-a094-462b-8fd3-8db6f68b3eb6	ERROR	❌ Failed to send error follow-up message: TypeError: fetch failed
+    at node:internal/deps/undici/undici:12625:11
+    at async sendFollowUpMessage (/var/task/index.js:564:22)
+    at async handleStatusCommandAsync (/var/task/index.js:1117:7) {
+  cause: SocketError: other side closed
+      at TLSSocket.onSocketEnd (node:internal/deps/undici/undici:9176:26)
+      at TLSSocket.emit (node:events:529:35)
+      at endReadableNT (node:internal/streams/readable:1400:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:82:21) {
+    code: 'UND_ERR_SOCKET',
+    socket: {
+      localAddress: '169.254.100.6',
+      localPort: 36424,
+      remoteAddress: '162.159.137.232',
+      remotePort: 443,
+      remoteFamily: 'IPv4',
+      timeout: undefined,
+      bytesWritten: 853,
+      bytesRead: 0
+    }
+  }
+}
+
+2025-06-24T02:33:52.516Z e6b485cb-a094-462b-8fd3-8db6f68b3eb6 ERROR ❌ Failed to send error follow-up message: TypeError: fetch failed at node:internal/deps/undici/undici:12625:11 at async sendFollowUpMessage (/var/task/index.js:564:22) at async handleStatusCommandAsync (/var/task/index.js:1117:7) { cause: SocketError: other side closed at TLSSocket.onSocketEnd (node:internal/deps/undici/undici:9176:26) at TLSSocket.emit (node:events:529:35) at endReadableNT (node:internal/streams/readable:1400:12) at process.processTicksAndRejections (node:internal/process/task_queues:82:21) { code: 'UND_ERR_SOCKET', socket: { localAddress: '169.254.100.6', localPort: 36424, remoteAddress: '162.159.137.232', remotePort: 443, remoteFamily: 'IPv4', timeout: undefined, bytesWritten: 853, bytesRead: 0 } } }
+2025-06-24T02:33:52.516Z
+2025-06-24T02:33:52.516Z	e6b485cb-a094-462b-8fd3-8db6f68b3eb6	INFO	Processing command: start
+
+2025-06-24T02:33:52.516Z e6b485cb-a094-462b-8fd3-8db6f68b3eb6 INFO Processing command: start
+2025-06-24T02:33:52.517Z
+2025-06-24T02:33:52.517Z	e6b485cb-a094-462b-8fd3-8db6f68b3eb6	INFO	🚀 Starting server command - worldName: GjurdTest, guildId: 1085035922208342148
+
+2025-06-24T02:33:52.517Z e6b485cb-a094-462b-8fd3-8db6f68b3eb6 INFO 🚀 Starting server command - worldName: GjurdTest, guildId: 1085035922208342148
+2025-06-24T02:33:52.655Z
+END RequestId: e6b485cb-a094-462b-8fd3-8db6f68b3eb6
+
+END RequestId: e6b485cb-a094-462b-8fd3-8db6f68b3eb6
+2025-06-24T02:33:52.655Z
+REPORT RequestId: e6b485cb-a094-462b-8fd3-8db6f68b3eb6	Duration: 454.27 ms	Billed Duration: 455 ms	Memory Size: 256 MB	Max Memory Used: 146 MB	
+
+REPORT RequestId: e6b485cb-a094-462b-8fd3-8db6f68b3eb6 Duration: 454.27 ms Billed Duration: 455 ms Memory Size: 256 MB Max Memory Used: 146 MB
+2025-06-24T02:34:32.363Z
+START RequestId: df6add68-2de5-4831-b9cc-2e248bab0295 Version: $LATEST
+
+START RequestId: df6add68-2de5-4831-b9cc-2e248bab0295 Version: $LATEST
+2025-06-24T02:34:32.375Z
+2025-06-24T02:34:32.375Z	e6b485cb-a094-462b-8fd3-8db6f68b3eb6	ERROR	❌ Error in handleStartCommandAsync: Error: getInstanceStatus timeout
+    at Timeout._onTimeout (/var/task/index.js:734:48)
+    at listOnTimeout (node:internal/timers:569:17)
+    at process.processTimers (node:internal/timers:512:7)

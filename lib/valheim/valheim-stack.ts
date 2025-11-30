@@ -112,7 +112,7 @@ interface ValheimServerAwsCdkStackProps extends StackProps {
     instanceType?: InstanceType;
     /**
      * Size of data volume in GB
-     * Default: 20
+     * Default: 12
      */
     dataVolumeSize?: number;
     /**
@@ -166,7 +166,7 @@ export class ValheimServerAwsCdkStack extends Stack {
         const serverName = props?.serverName || "ValheimServer";
         const worldName = props?.worldName || "ValheimWorld";
         const instanceType = props?.instanceType || InstanceType.of(InstanceClass.T3, InstanceSize.MEDIUM);
-        const dataVolumeSize = props?.dataVolumeSize || 20;
+        const dataVolumeSize = props?.dataVolumeSize || 12;
         const backupFrequencyHours = props?.backupFrequencyHours || 24;
         const backupsToKeep = props?.backupsToKeep || 7;
         const modsDirectory = props?.modsDirectory || "./mods";
@@ -244,13 +244,17 @@ export class ValheimServerAwsCdkStack extends Stack {
             })
         );
         
-        // Add policy for SSM Parameter Store access (for Discord webhooks)
+        // Add policy for SSM Parameter Store access (for Discord webhooks and monitoring)
         instanceRole.addToPolicy(
             new PolicyStatement({
                 effect: Effect.ALLOW,
-                actions: ["ssm:GetParameter", "ssm:GetParameters"],
+                actions: [
+                    "ssm:GetParameter", 
+                    "ssm:GetParameters",
+                    "ssm:PutParameter"  // For monitoring scripts to store player count and join codes
+                ],
                 resources: [
-                    `arn:aws:ssm:${this.region}:${this.account}:parameter/huginbot/discord-webhook/*`
+                    `arn:aws:ssm:${this.region}:${this.account}:parameter/huginbot/*`
                 ],
             })
         );
@@ -270,6 +274,7 @@ export class ValheimServerAwsCdkStack extends Stack {
         );
 
         // Scope EC2 actions to this specific instance
+        // Note: The instance ID will be injected after creation
         instanceRole.addToPolicy(
             new PolicyStatement({
                 effect: Effect.ALLOW,
@@ -284,7 +289,7 @@ export class ValheimServerAwsCdkStack extends Stack {
                 conditions: {
                     // Add condition to restrict actions to only this instance using tags
                     "StringEquals": {
-                        "ec2:ResourceTag/Name": "valheimInstance"
+                        "ec2:ResourceTag/Name": "ValheimStack/ValheimServerInstance"
                     }
                 }
             })
@@ -428,7 +433,7 @@ EOF`,
             "chmod +x /usr/local/bin/backup-valheim.sh",
 
             // Download world switching script from S3
-            `aws s3 cp s3://${this.backupBucket.bucketName}/scripts/switch-valheim-world.sh /usr/local/bin/switch-valheim-world.sh`,
+            `aws s3 cp s3://${this.backupBucket.bucketName}/scripts/valheim/switch-valheim-world.sh /usr/local/bin/switch-valheim-world.sh`,
             "chmod +x /usr/local/bin/switch-valheim-world.sh",
 
             // Install jq for JSON parsing
@@ -489,7 +494,7 @@ EOF`,
 
         // Download PlayFab monitoring script from S3
         userData.addCommands(
-            `aws s3 cp s3://${this.backupBucket.bucketName}/scripts/monitor-playfab.sh /usr/local/bin/monitor-playfab.sh`,
+            `aws s3 cp s3://${this.backupBucket.bucketName}/scripts/valheim/monitor-playfab.sh /usr/local/bin/monitor-playfab.sh`,
             "chmod +x /usr/local/bin/monitor-playfab.sh",
 
             // Setup a systemd service for the monitoring script
@@ -510,7 +515,7 @@ WantedBy=multi-user.target
 EOF`,
 
             // Download player monitoring script from S3
-            `aws s3 cp s3://${this.backupBucket.bucketName}/scripts/monitor-players.sh /usr/local/bin/monitor-players.sh`,
+            `aws s3 cp s3://${this.backupBucket.bucketName}/scripts/valheim/monitor-players.sh /usr/local/bin/monitor-players.sh`,
             "chmod +x /usr/local/bin/monitor-players.sh",
 
             // Setup systemd service for the player monitoring
@@ -553,9 +558,10 @@ EOF`,
         );
 
         // Create EC2 instance with two volumes:
-        // 1. Root volume for OS (30GB)
-        // 2. Additional volume for game data
-        this.ec2Instance = new Instance(this, "valheimInstance", {
+        // 1. Root volume for OS (10GB)
+        // 2. Additional volume for game data (12GB)
+        // Note: Logical ID is important - changing it will replace the instance
+        this.ec2Instance = new Instance(this, "ValheimServerInstance", {
             vpc: this.vpc,
             instanceType: instanceType,
             machineImage: MachineImage.latestAmazonLinux2(),
@@ -565,7 +571,7 @@ EOF`,
             blockDevices: [
                 {
                     deviceName: "/dev/xvda",
-                    volume: BlockDeviceVolume.ebs(30, {
+                    volume: BlockDeviceVolume.ebs(10, {
                         volumeType: EbsDeviceVolumeType.GP3,
                         encrypted: true,
                     }),
@@ -656,8 +662,8 @@ EOF`,
         // Common Lambda properties
         const lambdaDefaultProps = {
             runtime: Runtime.NODEJS_18_X,
-            timeout: Duration.seconds(10),
-            memorySize: 256,
+            timeout: Duration.minutes(15), // Maximum timeout for async Discord operations
+            memorySize: 512, // Increased memory for better performance
             environment: lambdaEnv,
         };
 
@@ -827,13 +833,14 @@ EOF`,
         autoShutdownTopic.addSubscription(new LambdaSubscription(autoShutdownFunction));
 
         // Create an alarm that will trigger if player count is 0 for the specified duration
+        // Use IGNORE for missing data to prevent auto-shutdown during startup when monitoring isn't ready
         this.idleAlarm = new Alarm(this, 'PlayerInactivityAlarm', {
             metric: playerCountMetric,
             threshold: 0,
             comparisonOperator: ComparisonOperator.LESS_THAN_OR_EQUAL_TO_THRESHOLD,
             evaluationPeriods: Math.ceil(idleThresholdMinutes / 5), // Convert minutes to 5-minute periods
             datapointsToAlarm: Math.ceil(idleThresholdMinutes / 5), // Require all datapoints to be below threshold
-            treatMissingData: TreatMissingData.BREACHING, // Treat missing data as if no players are online
+            treatMissingData: TreatMissingData.IGNORE, // Ignore missing data to prevent false alarms during startup
             alarmDescription: `Auto-shutdown Valheim server after ${idleThresholdMinutes} minutes of inactivity`,
         });
 

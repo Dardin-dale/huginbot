@@ -11,37 +11,45 @@ import {
   S3Client
 } from "@aws-sdk/client-s3";
 
-// Create and export AWS clients
-export const ec2Client = new EC2Client();
-export const ssmClient = new SSMClient();
-export const s3Client = new S3Client();
+// AWS client configuration optimized for Discord interactions
+// Balanced timeout and retry configuration for reliable responses
+const awsClientConfig = {
+  requestTimeout: 15000, // 15 second timeout for individual requests
+  region: process.env.AWS_REGION || process.env.AWS_DEFAULT_REGION || 'us-west-2',
+  maxAttempts: 2, // Two attempts to handle transient failures
+};
+
+// Create and export AWS clients with timeout configuration
+export const ec2Client = new EC2Client(awsClientConfig);
+export const ssmClient = new SSMClient(awsClientConfig);
+export const s3Client = new S3Client(awsClientConfig);
 
 /**
- * Retry wrapper for AWS API calls
+ * Robust retry wrapper for AWS API calls with exponential backoff
  * @param operation Function to retry
- * @param maxRetries Maximum number of retry attempts
- * @param baseDelay Base delay in ms (will be multiplied by 2^retryCount for exponential backoff)
+ * @param maxRetries Maximum number of retry attempts (default: 2 for reliability)
+ * @param baseDelay Base delay in ms (default: 1000ms)
  * @returns Result of the operation
  */
 export async function withRetry<T>(
   operation: () => Promise<T>,
-  maxRetries: number = 3,
+  maxRetries: number = 2,
   baseDelay: number = 1000
 ): Promise<T> {
   let retryCount = 0;
-  
+
   while (true) {
     try {
       return await operation();
     } catch (error) {
       retryCount++;
-      
+
       if (retryCount >= maxRetries) {
         console.error(`Failed after ${maxRetries} attempts:`, error);
         throw error;
       }
-      
-      // Exponential backoff
+
+      // Exponential backoff: 1s, 2s, 4s...
       const delay = baseDelay * Math.pow(2, retryCount - 1);
       console.log(`Retry attempt ${retryCount}/${maxRetries} after ${delay}ms`);
       await new Promise(resolve => setTimeout(resolve, delay));
@@ -89,6 +97,7 @@ export async function getInstanceStatus(): Promise<string> {
 
 /**
  * Get fast basic server status - just EC2 instance state
+ * Optimized for Discord responsiveness with timeout protection
  * @returns Object with basic status info
  */
 export async function getFastServerStatus(): Promise<{
@@ -96,14 +105,22 @@ export async function getFastServerStatus(): Promise<{
   message: string;
   launchTime?: Date;
 }> {
-  // Get instance details in one call (includes status and launch time)
-  const details = await getInstanceDetails();
-  
-  return {
-    status: details.status,
-    message: getStatusMessage(details.status),
-    launchTime: details.launchTime
-  };
+  try {
+    // Use withRetry which already has proper timeout handling via AWS client config
+    const details = await withRetry(() => getInstanceDetails(), 1, 500);
+    return {
+      status: details.status,
+      message: getStatusMessage(details.status),
+      launchTime: details.launchTime
+    };
+  } catch (error) {
+    console.error('Fast server status check failed:', error);
+    // Return a reasonable default instead of failing completely
+    return {
+      status: 'unknown',
+      message: 'Server status temporarily unavailable',
+    };
+  }
 }
 
 /**

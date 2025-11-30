@@ -61,44 +61,133 @@ const { verifyKey } = require('discord-interactions');
 // Import fetch for webhook testing (Node 18+ has built-in fetch)
 const fetch = globalThis.fetch;
 
-// Enhanced sendFollowUpMessage with better error handling
-async function sendFollowUpMessage(applicationId: string, token: string, content: any): Promise<void> {
+// Error classification helper
+function isInfrastructureError(error: any): boolean {
+  if (!error) return false;
+  const message = error.message || String(error);
+  const errorCode = error.code || '';
+  
+  return message.includes('timeout') || 
+         message.includes('fetch failed') || 
+         message.includes('SocketError') ||
+         message.includes('UND_ERR_SOCKET') ||
+         message.includes('network') ||
+         message.includes('connection') ||
+         message.includes('AbortError') ||
+         errorCode === 'UND_ERR_SOCKET' ||
+         errorCode === 'ECONNRESET' ||
+         errorCode === 'ETIMEDOUT' ||
+         errorCode === 'ENOTFOUND';
+}
+
+// Enhanced sendFollowUpMessage with retry mechanism and better error handling
+async function sendFollowUpMessage(applicationId: string, token: string, content: any, retries: number = 2): Promise<void> {
   const followUpUrl = `https://discord.com/api/v10/webhooks/${applicationId}/${token}`;
   
-  try {
-    console.log(`📤 Sending follow-up message to Discord webhook`);
-    
-    const response = await fetch(followUpUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(content),
-    });
-    
-    if (!response.ok) {
-      const errorData = await response.text();
-      console.error(`❌ Discord API error: ${response.status} ${response.statusText}`);
-      console.error(`Error response: ${errorData}`);
-      throw new Error(`Discord API returned ${response.status}: ${errorData}`);
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      console.log(`📤 Sending follow-up message to Discord webhook (attempt ${attempt + 1}/${retries + 1})`);
+      
+      // Add timeout to prevent hanging connections
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+      
+      const response = await fetch(followUpUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': 'HuginBot/1.0',
+        },
+        body: JSON.stringify(content),
+        signal: controller.signal,
+      });
+      
+      clearTimeout(timeoutId);
+      
+      if (!response.ok) {
+        const errorData = await response.text();
+        console.error(`❌ Discord API error: ${response.status} ${response.statusText}`);
+        console.error(`Error response: ${errorData}`);
+        
+        // Don't retry on client errors (4xx) - these won't succeed
+        if (response.status >= 400 && response.status < 500) {
+          throw new Error(`Discord API client error ${response.status}: ${errorData}`);
+        }
+        
+        // Retry on server errors (5xx) if we have attempts left
+        if (attempt < retries) {
+          console.log(`Server error ${response.status}, retrying in ${(attempt + 1) * 1000}ms`);
+          await new Promise(resolve => setTimeout(resolve, (attempt + 1) * 1000));
+          continue;
+        }
+        
+        throw new Error(`Discord API returned ${response.status}: ${errorData}`);
+      }
+      
+      console.log(`✅ Follow-up message sent successfully`);
+      return; // Success, exit retry loop
+      
+    } catch (error: any) {
+      console.error(`❌ Error sending follow-up message (attempt ${attempt + 1}):`, error.message || error);
+      
+      // Check if it's a network/socket error that might be retryable
+      const isRetryableError = error.name === 'AbortError' || 
+                              error.name === 'TypeError' ||
+                              error.code === 'UND_ERR_SOCKET' ||
+                              error.code === 'ECONNRESET' ||
+                              error.code === 'ETIMEDOUT';
+      
+      if (isRetryableError && attempt < retries) {
+        console.log(`Network error, retrying in ${(attempt + 1) * 1000}ms`);
+        await new Promise(resolve => setTimeout(resolve, (attempt + 1) * 1000));
+        continue;
+      }
+      
+      // Log details for debugging on final failure
+      if (attempt === retries) {
+        console.error('Follow-up URL:', followUpUrl);
+        console.error('Content:', JSON.stringify(content, null, 2));
+      }
+      
+      throw error; // Re-throw on final attempt
     }
+  }
+}
+
+// Fallback message for infrastructure errors with more retries
+async function sendSimpleFallbackMessage(applicationId: string, token: string, command: string): Promise<void> {
+  const simpleMessage = {
+    content: `⚠️ ${command} command temporarily unavailable due to network issues. Please try again in a few minutes.`
+  };
+  
+  try {
+    // Use more retries for fallback message since it's our last hope
+    await sendFollowUpMessage(applicationId, token, simpleMessage, 4);
+  } catch (fallbackError) {
+    console.error('❌ Even simple fallback message failed after retries:', fallbackError);
     
-    console.log(`✅ Follow-up message sent successfully`);
-    
-  } catch (error) {
-    console.error('❌ Error sending follow-up message:', error);
-    console.error('Follow-up URL:', followUpUrl);
-    console.error('Content:', JSON.stringify(content, null, 2));
-    throw error; // Re-throw so calling function can handle it
+    // Last resort: try an even simpler message with minimal content
+    try {
+      await sendFollowUpMessage(applicationId, token, {
+        content: `❌ ${command} failed. Please try again later.`
+      }, 2);
+    } catch (finalError) {
+      console.error('❌ Final fallback message also failed:', finalError);
+      // Nothing more we can do - Discord will show "thinking..." indefinitely
+    }
   }
 }
 
 export async function handler(
-  event: APIGatewayProxyEvent, 
+  event: APIGatewayProxyEvent,
   context: Context
 ): Promise<APIGatewayProxyResult> {
+  // Keep Lambda alive to complete async operations (this is the default, but being explicit)
+  // This is critical for deferred Discord responses to work properly
+  context.callbackWaitsForEmptyEventLoop = true;
+
   console.log("Event:", JSON.stringify(event, null, 2));
-  
+
   try {
     // Handle Discord signature verification
     const signature = event.headers['x-signature-ed25519'] || event.headers['X-Signature-Ed25519'];
@@ -243,22 +332,21 @@ export async function handler(
 
 // Discord-compatible command handlers
 async function handleStartCommand(worldName?: string, guildId?: string, applicationId?: string, token?: string): Promise<APIGatewayProxyResult> {
-  // Send deferred response immediately
-  const deferredResponse = {
-    statusCode: 200,
-    body: JSON.stringify({
-      type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
-    }),
-  };
-
-  // Perform the actual work asynchronously
+  // Start async work in background (don't await it)
   if (applicationId && token) {
+    // Fire off the async operation - Lambda will keep running due to callbackWaitsForEmptyEventLoop
     handleStartCommandAsync(worldName, guildId, applicationId, token).catch(error => {
       console.error('Error in handleStartCommandAsync:', error);
     });
   }
 
-  return deferredResponse;
+  // Return immediately so Discord gets response within 3 seconds
+  return {
+    statusCode: 200,
+    body: JSON.stringify({
+      type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
+    }),
+  };
 }
 
 async function handleStartCommandAsync(worldName?: string, guildId?: string, applicationId?: string, token?: string): Promise<void> {
@@ -267,16 +355,43 @@ async function handleStartCommandAsync(worldName?: string, guildId?: string, app
     return;
   }
 
+  // Always send an immediate "working on it" response
+  try {
+    await sendFollowUpMessage(applicationId, token, {
+      embeds: [{
+        title: '🚀 Starting Server...',
+        description: 'Initiating server startup process...',
+        color: 0xffaa00,
+        fields: [{
+          name: 'Status',
+          value: '🔄 Checking current state...',
+          inline: true,
+        }],
+        footer: {
+          text: 'HuginBot • This will update in a moment'
+        },
+        timestamp: new Date().toISOString(),
+      }],
+    });
+    console.log('✅ Initial start message sent successfully');
+  } catch (initialError) {
+    console.error('❌ Failed to send initial start message:', initialError);
+    // Try a simple fallback
+    try {
+      await sendFollowUpMessage(applicationId, token, {
+        content: '🚀 Starting server...'
+      });
+    } catch (fallbackError) {
+      console.error('❌ Even fallback initial message failed:', fallbackError);
+      return; // Can't communicate with Discord at all
+    }
+  }
+
   try {
     console.log(`🚀 Starting server command - worldName: ${worldName}, guildId: ${guildId}`);
-    
-    // Check instance status with timeout - use fast check for start command
-    const status = await Promise.race([
-      getInstanceStatus(),
-      new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('getInstanceStatus timeout')), 10000)
-      )
-    ]) as string;
+
+    // Check status with our improved getFastServerStatus
+    const { status } = await getFastServerStatus();
     
     console.log(`📊 Current instance status: ${status}`);
     
@@ -365,18 +480,32 @@ async function handleStartCommandAsync(worldName?: string, guildId?: string, app
     const displayWorldName = selectedWorldConfig ? selectedWorldConfig.name : undefined;
 
     await sendFollowUpMessage(applicationId, token, {
-      content: '🚀 Starting Valheim server... This may take 5-10 minutes.',
+      content: '🚀 Server start command sent!',
       embeds: [{
-        title: 'Server Starting',
-        description: 'The server is being started. You\'ll receive a notification when it\'s ready.',
-        color: 0xffaa00,
+        title: '🚀 Valheim Server Starting',
+        description: 'Server startup initiated successfully!\n\n' +
+                    '**What happens next:**\n' +
+                    '🔄 EC2 instance boots (30-60 seconds)\n' +
+                    '📦 Docker container starts (1-2 minutes)\n' +
+                    '🎮 Valheim server loads (2-3 minutes)\n' +
+                    '🔗 Join code gets posted here automatically\n\n' +
+                    '💡 **You don\'t need to do anything** - notifications will appear here!',
+        color: 0x00ff00,
         fields: displayWorldName ? [{
-          name: 'World',
+          name: '🌍 World',
           value: displayWorldName,
           inline: true,
-        }] : [],
+        }, {
+          name: '⏱️ Est. Time',
+          value: '3-5 minutes',
+          inline: true
+        }] : [{
+          name: '⏱️ Est. Time',
+          value: '3-5 minutes',
+          inline: true
+        }],
         footer: {
-          text: 'HuginBot • Valheim Server Manager'
+          text: 'HuginBot • Auto-notifications enabled'
         },
         timestamp: new Date().toISOString(),
       }],
@@ -386,44 +515,47 @@ async function handleStartCommandAsync(worldName?: string, guildId?: string, app
     
   } catch (error) {
     console.error('❌ Error in handleStartCommandAsync:', error);
-    console.error('Stack trace:', error instanceof Error ? error.stack : 'No stack trace');
-    
-    if (applicationId && token) {
+
+    // Even if AWS fails, try to send a user-friendly message
+    try {
+      await sendFollowUpMessage(applicationId, token, {
+        embeds: [{
+          title: '🚀 Server Start Issue',
+          description: 'Having trouble starting the server right now.',
+          color: 0xff6600,
+          fields: [{
+            name: 'Status',
+            value: '⚠️ Start command failed',
+            inline: true,
+          }, {
+            name: 'Next Steps',
+            value: 'Please try again in a few moments',
+            inline: true,
+          }],
+          footer: {
+            text: 'HuginBot • Contact admin if this persists'
+          },
+          timestamp: new Date().toISOString(),
+        }],
+      });
+    } catch (followUpError) {
+      console.error('❌ Failed to send start error message:', followUpError);
+      // Final fallback - try just text
       try {
         await sendFollowUpMessage(applicationId, token, {
-          content: `❌ Failed to start server: ${error instanceof Error ? error.message : 'Unknown error'}`,
-          embeds: [{
-            title: 'Start Command Failed',
-            description: 'There was an error starting the server. Please check the logs or try again.',
-            color: 0xff0000,
-            fields: [{
-              name: 'Error Details',
-              value: error instanceof Error ? error.message : String(error),
-              inline: false
-            }],
-            footer: {
-              text: 'HuginBot • Contact administrator if this persists'
-            }
-          }]
+          content: '⚠️ Server start failed. Please try again in a few moments.'
         });
-      } catch (followUpError) {
-        console.error('❌ Failed to send error follow-up message:', followUpError);
+      } catch (finalError) {
+        console.error('❌ All start message attempts failed:', finalError);
       }
     }
   }
 }
 
 async function handleStopCommand(applicationId?: string, token?: string): Promise<APIGatewayProxyResult> {
-  // Send deferred response immediately
-  const deferredResponse = {
-    statusCode: 200,
-    body: JSON.stringify({
-      type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
-    }),
-  };
-
-  // Perform the actual work asynchronously
+  // Start async work in background (don't await it)
   if (applicationId && token) {
+    // Fire off the async operation - Lambda will keep running due to callbackWaitsForEmptyEventLoop
     handleStopCommandAsync(applicationId, token).catch(error => {
       console.error('Error in handleStopCommandAsync:', error);
       sendFollowUpMessage(applicationId, token, {
@@ -434,21 +566,55 @@ async function handleStopCommand(applicationId?: string, token?: string): Promis
     });
   }
 
-  return deferredResponse;
+  // Return immediately so Discord gets response within 3 seconds
+  return {
+    statusCode: 200,
+    body: JSON.stringify({
+      type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
+    }),
+  };
 }
 
 async function handleStopCommandAsync(applicationId: string, token: string): Promise<void> {
   console.log('handleStopCommandAsync called with applicationId:', applicationId, 'token length:', token?.length);
+
+  // Always send an immediate "working on it" response
+  try {
+    await sendFollowUpMessage(applicationId, token, {
+      embeds: [{
+        title: '🛑 Stopping Server...',
+        description: 'Initiating server shutdown process...',
+        color: 0xffaa00,
+        fields: [{
+          name: 'Status',
+          value: '🔄 Checking current state...',
+          inline: true,
+        }],
+        footer: {
+          text: 'HuginBot • This will update in a moment'
+        },
+        timestamp: new Date().toISOString(),
+      }],
+    });
+    console.log('✅ Initial stop message sent successfully');
+  } catch (initialError) {
+    console.error('❌ Failed to send initial stop message:', initialError);
+    // Try a simple fallback
+    try {
+      await sendFollowUpMessage(applicationId, token, {
+        content: '🛑 Stopping server...'
+      });
+    } catch (fallbackError) {
+      console.error('❌ Even fallback initial message failed:', fallbackError);
+      return; // Can't communicate with Discord at all
+    }
+  }
+
   try {
     console.log(`🛑 Stopping server command initiated`);
-    
-    // Check instance status with timeout - use fast check for stop command
-    const status = await Promise.race([
-      getInstanceStatus(),
-      new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('getInstanceStatus timeout')), 10000)
-      )
-    ]) as string;
+
+    // Check status with our improved getFastServerStatus
+    const { status } = await getFastServerStatus();
     
     console.log(`📊 Current instance status: ${status}`);
     
@@ -497,13 +663,17 @@ async function handleStopCommandAsync(applicationId: string, token: string): Pro
     console.log(`✅ EC2 instance stop command sent successfully`);
 
     await sendFollowUpMessage(applicationId, token, {
-      content: '🛑 Stopping Valheim server...',
+      content: '🛑 Server stop command sent!',
       embeds: [{
-        title: 'Server Stopping',
-        description: 'The server is being shut down. Make sure to save your progress!',
-        color: 0xff0000,
+        title: '🛑 Valheim Server Stopping',
+        description: '**Server shutdown initiated:**\n' +
+                    '💾 Backup triggered (if players online)\n' +
+                    '⚠️ Players have ~30 seconds to save & exit\n' +
+                    '🔄 Server will shut down automatically\n\n' +
+                    '✅ You\'ll get a notification when shutdown completes.',
+        color: 0xff6600,
         footer: {
-          text: 'HuginBot • Valheim Server Manager'
+          text: 'HuginBot • Auto-notifications enabled'
         },
         timestamp: new Date().toISOString(),
       }],
@@ -513,42 +683,50 @@ async function handleStopCommandAsync(applicationId: string, token: string): Pro
     
   } catch (error) {
     console.error('❌ Error in handleStopCommandAsync:', error);
-    console.error('Stack trace:', error instanceof Error ? error.stack : 'No stack trace');
-    
+
+    // Even if AWS fails, try to send a user-friendly message
     try {
       await sendFollowUpMessage(applicationId, token, {
-        content: `❌ Failed to stop server: ${error instanceof Error ? error.message : 'Unknown error'}`,
         embeds: [{
-          title: 'Stop Command Failed',
-          description: 'There was an error stopping the server. Please check the logs or try again.',
-          color: 0xff0000,
+          title: '🛑 Server Stop Issue',
+          description: 'Having trouble stopping the server right now.',
+          color: 0xff6600,
           fields: [{
-            name: 'Error Details',
-            value: error instanceof Error ? error.message : String(error),
-            inline: false
+            name: 'Status',
+            value: '⚠️ Stop command failed',
+            inline: true,
+          }, {
+            name: 'Next Steps',
+            value: 'Please try again in a few moments',
+            inline: true,
           }],
           footer: {
-            text: 'HuginBot • Contact administrator if this persists'
-          }
-        }]
+            text: 'HuginBot • Contact admin if this persists'
+          },
+          timestamp: new Date().toISOString(),
+        }],
       });
     } catch (followUpError) {
-      console.error('❌ Failed to send error follow-up message:', followUpError);
+      console.error('❌ Failed to send stop error message:', followUpError);
+      // Final fallback - try just text
+      try {
+        await sendFollowUpMessage(applicationId, token, {
+          content: '⚠️ Server stop failed. Please try again in a few moments.'
+        });
+      } catch (finalError) {
+        console.error('❌ All stop message attempts failed:', finalError);
+      }
     }
   }
 }
 
 async function handleStatusCommand(applicationId?: string, token?: string): Promise<APIGatewayProxyResult> {
-  // Send deferred response immediately
-  const deferredResponse = {
-    statusCode: 200,
-    body: JSON.stringify({
-      type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
-    }),
-  };
+  // CRITICAL: Return deferred response to Discord IMMEDIATELY (must be < 3 seconds)
+  // We cannot await any async work before this return or Discord will timeout
 
-  // Perform the actual work asynchronously
+  // Start async work in background (don't await it)
   if (applicationId && token) {
+    // Fire off the async operation - Lambda will keep running due to callbackWaitsForEmptyEventLoop
     handleStatusCommandAsync(applicationId, token).catch(error => {
       console.error('Error in handleStatusCommandAsync:', error);
       sendFollowUpMessage(applicationId, token, {
@@ -559,27 +737,60 @@ async function handleStatusCommand(applicationId?: string, token?: string): Prom
     });
   }
 
-  return deferredResponse;
+  // Return immediately so Discord gets response within 3 seconds
+  return {
+    statusCode: 200,
+    body: JSON.stringify({
+      type: InteractionResponseType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
+    }),
+  };
 }
 
 async function handleStatusCommandAsync(applicationId: string, token: string): Promise<void> {
   console.log('handleStatusCommandAsync called with applicationId:', applicationId, 'token length:', token?.length);
+
+  // Always send an immediate working response regardless of AWS API status
   try {
-    console.log(`📊 Status check command initiated with progressive loading`);
-    
-    // Step 1: Get fast status and send initial response
-    const { status, message: fastMessage, launchTime } = await Promise.race([
-      getFastServerStatus(),
-      new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('getFastServerStatus timeout')), 10000)
-      )
-    ]) as any;
-    
-    console.log(`📊 Fast server status retrieved: ${status}`);
-    
-    const statusEmoji = status === 'running' ? '✅' : status === 'stopped' ? '❌' : '⏳';
-    
-    let initialFields = [
+    await sendFollowUpMessage(applicationId, token, {
+      embeds: [{
+        title: '📊 Checking Server Status...',
+        description: 'Getting server status information...',
+        color: 0xffaa00,
+        fields: [{
+          name: 'Status',
+          value: '🔄 Checking...',
+          inline: true,
+        }],
+        footer: {
+          text: 'HuginBot • This will update in a moment'
+        },
+        timestamp: new Date().toISOString(),
+      }],
+    });
+    console.log('✅ Initial status message sent successfully');
+  } catch (initialError) {
+    console.error('❌ Failed to send initial status message:', initialError);
+    // If we can't even send the initial message, try a simple fallback
+    try {
+      await sendFollowUpMessage(applicationId, token, {
+        content: '🔄 Checking server status...'
+      });
+    } catch (fallbackError) {
+      console.error('❌ Even fallback initial message failed:', fallbackError);
+      return; // Can't communicate with Discord at all
+    }
+  }
+
+  // Now try to get the actual server status
+  try {
+    console.log(`📊 Getting server status details`);
+
+    const { status, message: fastMessage, launchTime } = await getFastServerStatus();
+    console.log(`📊 Server status retrieved: ${status}`);
+
+    const statusEmoji = status === 'running' ? '✅' : status === 'stopped' ? '❌' : status === 'unknown' ? '⚠️' : '⏳';
+
+    let fields = [
       {
         name: 'Status',
         value: `${statusEmoji} ${status}`,
@@ -592,126 +803,138 @@ async function handleStatusCommandAsync(applicationId: string, token: string): P
       const uptimeMinutes = Math.floor(uptimeMs / (1000 * 60));
       const uptimeHours = Math.floor(uptimeMinutes / 60);
       const remainingMinutes = uptimeMinutes % 60;
-      
-      initialFields.push({
+
+      fields.push({
         name: 'Uptime',
         value: uptimeHours > 0 ? `${uptimeHours}h ${remainingMinutes}m` : `${uptimeMinutes}m`,
         inline: true,
       });
     }
 
-    // Add a loading indicator if server is running
-    if (status === 'running') {
-      initialFields.push({
-        name: 'Server Details',
-        value: '🔄 Checking server readiness...',
-        inline: false,
-      });
-    }
-
-    // Send initial fast response
+    // Send the updated status response
     await sendFollowUpMessage(applicationId, token, {
       embeds: [{
         title: 'Valheim Server Status',
         description: fastMessage,
-        color: status === 'running' ? 0x00ff00 : status === 'stopped' ? 0xff0000 : 0xffaa00,
-        fields: initialFields,
+        color: status === 'running' ? 0x00ff00 : status === 'stopped' ? 0xff0000 : status === 'unknown' ? 0xff6600 : 0xffaa00,
+        fields: fields,
         footer: {
           text: 'HuginBot • Use /start to launch the server'
         },
         timestamp: new Date().toISOString(),
+      }],
+      components: [{
+        type: 1,
+        components: [{
+          type: 2,
+          style: 2,
+          label: "Refresh Status",
+          custom_id: "status_refresh",
+          emoji: { name: "🔄" }
+        }]
       }]
     });
 
-    // Step 2: If server is running, get detailed status and update
+    // Step 2: If server is running, try to get detailed status in background
+    // This won't block the user experience if it fails
     if (status === 'running') {
-      try {
-        console.log(`📊 Getting detailed status for running server`);
-        
-        const detailedStatus = await Promise.race([
-          getDetailedServerStatus(),
-          new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('getDetailedServerStatus timeout')), 20000)
-          )
-        ]) as any;
-        
-        const { message: detailedMessage, isReady, joinCode } = detailedStatus;
-        console.log(`📊 Detailed server status retrieved: ready: ${isReady}, hasJoinCode: ${!!joinCode}`);
-        
-        // Update the fields with detailed information
-        let updatedFields = [
-          {
-            name: 'Status',
-            value: `${statusEmoji} ${status}`,
-            inline: true,
-          }
-        ];
-
-        if (launchTime) {
-          const uptimeMs = Date.now() - launchTime.getTime();
-          const uptimeMinutes = Math.floor(uptimeMs / (1000 * 60));
-          const uptimeHours = Math.floor(uptimeMinutes / 60);
-          const remainingMinutes = uptimeMinutes % 60;
+      // Use setTimeout to make this truly asynchronous and non-blocking
+      setTimeout(async () => {
+        try {
+          console.log(`📊 Checking for cached join code from EventBridge notifications`);
           
-          updatedFields.push({
-            name: 'Uptime',
-            value: uptimeHours > 0 ? `${uptimeHours}h ${remainingMinutes}m` : `${uptimeMinutes}m`,
-            inline: true,
-          });
-        }
+          // Try to get cached join code from SSM (set by EventBridge notifications)
+          let joinCode: string | undefined;
+          try {
+            const joinCodeParam = await ssmClient.send(new GetParameterCommand({
+              Name: '/huginbot/playfab-join-code'
+            }));
+            joinCode = joinCodeParam.Parameter?.Value;
+            console.log(`📊 Found cached join code: ${joinCode ? 'YES' : 'NO'}`);
+          } catch {
+            console.log(`📊 No cached join code available yet`);
+          }
+          
+          // Only send an update if we found a join code (something meaningful to show)
+          if (joinCode) {
+            let updatedFields = [
+              {
+                name: 'Status',
+                value: `${statusEmoji} ${status}`,
+                inline: true,
+              }
+            ];
 
-        if (isReady && joinCode) {
-          updatedFields.push({
-            name: 'PlayFab Join Code',
-            value: `\`${joinCode}\``,
-            inline: false,
-          });
-        } else if (status === 'running') {
-          updatedFields.push({
-            name: 'Server Details',
-            value: '⏳ Server is starting up, join code not yet available',
-            inline: false,
-          });
-        }
+            if (launchTime) {
+              const uptimeMs = Date.now() - launchTime.getTime();
+              const uptimeMinutes = Math.floor(uptimeMs / (1000 * 60));
+              const uptimeHours = Math.floor(uptimeMinutes / 60);
+              const remainingMinutes = uptimeMinutes % 60;
+              
+              updatedFields.push({
+                name: 'Uptime',
+                value: uptimeHours > 0 ? `${uptimeHours}h ${remainingMinutes}m` : `${uptimeMinutes}m`,
+                inline: true,
+              });
+            }
 
-        // Send updated response with detailed information
-        await sendFollowUpMessage(applicationId, token, {
-          embeds: [{
-            title: 'Valheim Server Status',
-            description: detailedMessage,
-            color: isReady ? 0x00ff00 : 0xffaa00,
-            fields: updatedFields,
-            footer: {
-              text: 'HuginBot • Use /start to launch the server'
-            },
-            timestamp: new Date().toISOString(),
-          }],
-          components: [{
-            type: 1,
-            components: [{
-              type: 2,
-              style: 2,
-              label: "Refresh Status",
-              custom_id: "status_refresh",
-              emoji: { name: "🔄" }
-            }]
-          }]
-        });
-        
-      } catch (detailError) {
-        console.error('Failed to get detailed status, keeping fast response:', detailError);
-        // Don't send another message if detailed status fails - the fast response is sufficient
-      }
-    } else {
-      // For non-running servers, add the refresh button to the initial response
+            updatedFields.push({
+              name: 'PlayFab Join Code',
+              value: `\`${joinCode}\``,
+              inline: false,
+            });
+
+            // Send updated response with join code
+            await sendFollowUpMessage(applicationId, token, {
+              embeds: [{
+                title: '🎮 Valheim Server Ready!',
+                description: 'Server is online and ready to play! Use the join code below to connect.',
+                color: 0x00ff00,
+                fields: updatedFields,
+                footer: {
+                  text: 'HuginBot • Server is ready to play!'
+                },
+                timestamp: new Date().toISOString(),
+              }],
+              components: [{
+                type: 1,
+                components: [{
+                  type: 2,
+                  style: 2,
+                  label: "Refresh Status",
+                  custom_id: "status_refresh",
+                  emoji: { name: "🔄" }
+                }]
+              }]
+            });
+          }
+          
+        } catch (detailError) {
+          console.log('Background detailed status check failed (this is OK):', detailError instanceof Error ? detailError.message : String(detailError));
+          // Silently fail - we already sent the basic status response
+        }
+      }, 100); // Small delay to ensure initial response is sent first
+    }
+    
+    console.log(`✅ Status command completed successfully`);
+
+  } catch (error) {
+    console.error('❌ Error getting server status details:', error);
+
+    // Even if AWS fails, try to send a user-friendly message
+    try {
       await sendFollowUpMessage(applicationId, token, {
         embeds: [{
-          title: 'Valheim Server Status',
-          description: fastMessage,
-          color: status === 'running' ? 0x00ff00 : status === 'stopped' ? 0xff0000 : 0xffaa00,
-          fields: initialFields,
+          title: 'Server Status',
+          description: 'Having trouble checking server status right now.',
+          color: 0xff6600,
+          fields: [{
+            name: 'Status',
+            value: '⚠️ Unknown (AWS API issue)',
+            inline: true,
+          }],
           footer: {
-            text: 'HuginBot • Use /start to launch the server'
+            text: 'HuginBot • Try again in a few moments'
           },
           timestamp: new Date().toISOString(),
         }],
@@ -726,33 +949,16 @@ async function handleStatusCommandAsync(applicationId: string, token: string): P
           }]
         }]
       });
-    }
-    
-    console.log(`✅ Status command completed successfully`);
-    
-  } catch (error) {
-    console.error('❌ Error in handleStatusCommandAsync:', error);
-    console.error('Stack trace:', error instanceof Error ? error.stack : 'No stack trace');
-    
-    try {
-      await sendFollowUpMessage(applicationId, token, {
-        content: `❌ Failed to check server status: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        embeds: [{
-          title: 'Status Check Failed',
-          description: 'There was an error checking the server status. Please try again.',
-          color: 0xff0000,
-          fields: [{
-            name: 'Error Details',
-            value: error instanceof Error ? error.message : String(error),
-            inline: false
-          }],
-          footer: {
-            text: 'HuginBot • Contact administrator if this persists'
-          }
-        }]
-      });
     } catch (followUpError) {
-      console.error('❌ Failed to send error follow-up message:', followUpError);
+      console.error('❌ Failed to send status error message:', followUpError);
+      // Final fallback - try just text
+      try {
+        await sendFollowUpMessage(applicationId, token, {
+          content: '⚠️ Status check temporarily unavailable. Please try again.'
+        });
+      } catch (finalError) {
+        console.error('❌ All status message attempts failed:', finalError);
+      }
     }
   }
 }
