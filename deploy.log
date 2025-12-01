@@ -1,0 +1,247 @@
+
+> huginbot@0.1.0 deploy
+> cdk deploy ValheimStack
+
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.80kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for public.ecr.aws/sam/build-nodejs18.x:latest
+#2 DONE 0.5s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.0s
+
+#4 [ 1/12] FROM public.ecr.aws/sam/build-nodejs18.x:latest@sha256:388b5ae1a11468fde5a1d27aa7ea649bbf08bf9aa2e6d61edb46255448467973
+#4 DONE 0.0s
+
+#5 [ 2/12] RUN npm install --global yarn@1.22.5
+#5 CACHED
+
+#6 [ 3/12] RUN npm install --global pnpm@7.30.5
+#6 CACHED
+
+#7 [ 4/12] RUN npm install --global bun@1.1.30
+#7 CACHED
+
+#8 [ 7/12] RUN mkdir /tmp/npm-cache &&     chmod -R 777 /tmp/npm-cache &&     npm config --global set cache /tmp/npm-cache
+#8 CACHED
+
+#9 [ 8/12] RUN mkdir /tmp/yarn-cache &&     chmod -R 777 /tmp/yarn-cache &&     yarn config set cache-folder /tmp/yarn-cache
+#9 CACHED
+
+#10 [10/12] RUN npm config --global set update-notifier false
+#10 CACHED
+
+#11 [ 9/12] RUN mkdir /tmp/pnpm-cache &&     chmod -R 777 /tmp/pnpm-cache &&     pnpm config --global set store-dir /tmp/pnpm-cache
+#11 CACHED
+
+#12 [11/12] RUN /sbin/useradd -u 1000 user && chmod 711 /
+#12 CACHED
+
+#13 [ 5/12] RUN npm install --global typescript
+#13 CACHED
+
+#14 [ 6/12] RUN npm install --global --unsafe-perm=true esbuild@0.21
+#14 CACHED
+
+#15 [12/12] RUN mkdir /tmp/bun-cache &&     chmod -R 777 /tmp/bun-cache &&     echo -e "[install.cache]\ndir = "/tmp/bun-cache"\ndisable = true" >> /home/user/.bunfig.toml
+#15 CACHED
+
+#16 exporting to image
+#16 exporting layers done
+#16 writing image sha256:f33686b25a7688a7755a679d5c81b7665333077113111318e484efb184221022 done
+#16 naming to docker.io/library/cdk-2e5a0498bb94f88bf4430a29d3046e08223f4c6d96ebd9741bd534551b612e2f done
+#16 DONE 0.0s
+Bundling asset ValheimStack/BackupCleanupFunction/Code/Stage...
+esbuild cannot run locally. Switching to Docker bundling.
+
+  asset-output/index.js  4.8kb
+
+⚡ Done in 13ms
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.80kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for public.ecr.aws/sam/build-nodejs18.x:latest
+#2 DONE 0.1s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.0s
+
+#4 [ 1/12] FROM public.ecr.aws/sam/build-nodejs18.x:latest@sha256:388b5ae1a11468fde5a1d27aa7ea649bbf08bf9aa2e6d61edb46255448467973
+#4 DONE 0.0s
+
+#5 [10/12] RUN npm config --global set update-notifier false
+#5 CACHED
+
+#6 [ 8/12] RUN mkdir /tmp/yarn-cache &&     chmod -R 777 /tmp/yarn-cache &&     yarn config set cache-folder /tmp/yarn-cache
+#6 CACHED
+
+#7 [ 9/12] RUN mkdir /tmp/pnpm-cache &&     chmod -R 777 /tmp/pnpm-cache &&     pnpm config --global set store-dir /tmp/pnpm-cache
+#7 CACHED
+
+#8 [ 4/12] RUN npm install --global bun@1.1.30
+#8 CACHED
+
+#9 [ 5/12] RUN npm install --global typescript
+#9 CACHED
+
+#10 [ 2/12] RUN npm install --global yarn@1.22.5
+#10 CACHED
+
+#11 [ 3/12] RUN npm install --global pnpm@7.30.5
+#11 CACHED
+
+#12 [ 6/12] RUN npm install --global --unsafe-perm=true esbuild@0.21
+#12 CACHED
+
+#13 [ 7/12] RUN mkdir /tmp/npm-cache &&     chmod -R 777 /tmp/npm-cache &&     npm config --global set cache /tmp/npm-cache
+#13 CACHED
+
+#14 [11/12] RUN /sbin/useradd -u 1000 user && chmod 711 /
+#14 CACHED
+
+#15 [12/12] RUN mkdir /tmp/bun-cache &&     chmod -R 777 /tmp/bun-cache &&     echo -e "[install.cache]\ndir = "/tmp/bun-cache"\ndisable = true" >> /home/user/.bunfig.toml
+#15 CACHED
+
+#16 exporting to image
+#16 exporting layers done
+#16 writing image sha256:f33686b25a7688a7755a679d5c81b7665333077113111318e484efb184221022 done
+#16 naming to docker.io/library/cdk-2e5a0498bb94f88bf4430a29d3046e08223f4c6d96ebd9741bd534551b612e2f done
+#16 DONE 0.0s
+Bundling asset ValheimStack/CommandsFunction/Code/Stage...
+esbuild cannot run locally. Switching to Docker bundling.
+
+  asset-output/index.js  56.7kb
+
+⚡ Done in 5ms
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile
+#1 transferring dockerfile: 1.80kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for public.ecr.aws/sam/build-nodejs18.x:latest
+#2 DONE 0.1s
+
+#3 [internal] load .dockerignore
+#3 transferring context: 2B done
+#3 DONE 0.0s
+
+#4 [ 1/12] FROM public.ecr.aws/sam/build-nodejs18.x:latest@sha256:388b5ae1a11468fde5a1d27aa7ea649bbf08bf9aa2e6d61edb46255448467973
+#4 DONE 0.0s
+
+#5 [ 3/12] RUN npm install --global pnpm@7.30.5
+#5 CACHED
+
+#6 [ 4/12] RUN npm install --global bun@1.1.30
+#6 CACHED
+
+#7 [ 9/12] RUN mkdir /tmp/pnpm-cache &&     chmod -R 777 /tmp/pnpm-cache &&     pnpm config --global set store-dir /tmp/pnpm-cache
+#7 CACHED
+
+#8 [11/12] RUN /sbin/useradd -u 1000 user && chmod 711 /
+#8 CACHED
+
+#9 [ 8/12] RUN mkdir /tmp/yarn-cache &&     chmod -R 777 /tmp/yarn-cache &&     yarn config set cache-folder /tmp/yarn-cache
+#9 CACHED
+
+#10 [ 5/12] RUN npm install --global typescript
+#10 CACHED
+
+#11 [10/12] RUN npm config --global set update-notifier false
+#11 CACHED
+
+#12 [ 2/12] RUN npm install --global yarn@1.22.5
+#12 CACHED
+
+#13 [ 6/12] RUN npm install --global --unsafe-perm=true esbuild@0.21
+#13 CACHED
+
+#14 [ 7/12] RUN mkdir /tmp/npm-cache &&     chmod -R 777 /tmp/npm-cache &&     npm config --global set cache /tmp/npm-cache
+#14 CACHED
+
+#15 [12/12] RUN mkdir /tmp/bun-cache &&     chmod -R 777 /tmp/bun-cache &&     echo -e "[install.cache]\ndir = "/tmp/bun-cache"\ndisable = true" >> /home/user/.bunfig.toml
+#15 CACHED
+
+#16 exporting to image
+#16 exporting layers done
+#16 writing image sha256:f33686b25a7688a7755a679d5c81b7665333077113111318e484efb184221022 done
+#16 naming to docker.io/library/cdk-2e5a0498bb94f88bf4430a29d3046e08223f4c6d96ebd9741bd534551b612e2f done
+#16 DONE 0.0s
+Bundling asset ValheimStack/NotifyJoinCodeFunction/Code/Stage...
+esbuild cannot run locally. Switching to Docker bundling.
+
+  asset-output/index.js  421.8kb
+
+⚡ Done in 25ms
+
+✨  Synthesis time: 7.81s
+
+ValheimStack: start: Building ScriptDeployment/Asset1
+ValheimStack: success: Built ScriptDeployment/Asset1
+ValheimStack: start: Building ValheimStack Template
+ValheimStack: success: Built ValheimStack Template
+ValheimStack: start: Publishing ScriptDeployment/Asset1 (current_account-current_region)
+ValheimStack: start: Publishing ValheimStack Template (current_account-current_region)
+ValheimStack: success: Published ScriptDeployment/Asset1 (current_account-current_region)
+ValheimStack: success: Published ValheimStack Template (current_account-current_region)
+ValheimStack: deploying... [1/1]
+ValheimStack: creating CloudFormation changeset...
+ValheimStack |  0/11 | 10:42:13 PM | UPDATE_IN_PROGRESS   | AWS::CloudFormation::Stack            | ValheimStack User Initiated
+ValheimStack |  0/11 | 10:42:18 PM | UPDATE_IN_PROGRESS   | Custom::CDKBucketDeployment           | ScriptDeployment/CustomResource/Default (ScriptDeploymentCustomResource757ECD02) 
+ValheimStack |  0/11 | 10:42:18 PM | UPDATE_IN_PROGRESS   | AWS::SSM::Parameter                   | DiscordAuthToken (DiscordAuthToken420405F3) 
+ValheimStack |  0/11 | 10:42:19 PM | UPDATE_IN_PROGRESS   | AWS::Lambda::Function                 | CommandsFunction (CommandsFunction05D33041) 
+ValheimStack |  0/11 | 10:42:19 PM | UPDATE_IN_PROGRESS   | AWS::Lambda::Function                 | NotifyJoinCodeFunction (NotifyJoinCodeFunction7FA487A4) 
+ValheimStack |  1/11 | 10:42:19 PM | UPDATE_COMPLETE      | AWS::SSM::Parameter                   | DiscordAuthToken (DiscordAuthToken420405F3) 
+ValheimStack |  2/11 | 10:42:26 PM | UPDATE_COMPLETE      | AWS::Lambda::Function                 | CommandsFunction (CommandsFunction05D33041) 
+ValheimStack |  3/11 | 10:42:26 PM | UPDATE_COMPLETE      | AWS::Lambda::Function                 | NotifyJoinCodeFunction (NotifyJoinCodeFunction7FA487A4) 
+ValheimStack |  4/11 | 10:42:49 PM | UPDATE_COMPLETE      | Custom::CDKBucketDeployment           | ScriptDeployment/CustomResource/Default (ScriptDeploymentCustomResource757ECD02) 
+ValheimStack |  5/11 | 10:42:50 PM | UPDATE_COMPLETE_CLEA | AWS::CloudFormation::Stack            | ValheimStack 
+ValheimStack |  6/11 | 10:42:51 PM | UPDATE_COMPLETE      | AWS::CloudFormation::Stack            | ValheimStack 
+
+ ✅  ValheimStack
+
+✨  Deployment time: 61.1s
+
+Outputs:
+ValheimStack.ApiEndpoint = https://bl7y6kxpp5.execute-api.us-west-2.amazonaws.com/prod/
+ValheimStack.AuthTokenOutput = 7bfbf609ec4cf744931192642649ea758bd42fa16924ee6ba169cdb62232c9d8
+ValheimStack.BackupBucketName = valheimstack-valheimbackupbucket4e6239d8-bagwm2zvwsy9
+ValheimStack.HuginbotApiEndpoint69C2C383 = https://bl7y6kxpp5.execute-api.us-west-2.amazonaws.com/prod/
+ValheimStack.InstanceId = i-0584eb62ed65471fa
+ValheimStack.InstancePublicIP = Get public IP with: aws ec2 describe-instances --instance-ids i-0584eb62ed65471fa --query 'Reservations[0].Instances[0].PublicIpAddress'
+ValheimStack.ValheimConnectAddress = Use the public IP from above command with port 2456
+Stack ARN:
+arn:aws:cloudformation:us-west-2:770508626944:stack/ValheimStack/1e0aea10-b76f-11f0-9443-06b7cdc84bfd
+
+✨  Total time: 68.91s
+
+
+NOTICES         (What's this? https://github.com/aws/aws-cdk/wiki/CLI-Notices)
+
+34892	CDK CLI will collect telemetry data on command usage starting at version 2.1100.0 (unless opted out)
+
+	Overview: We do not collect customer content and we anonymize the
+	          telemetry we do collect. See the attached issue for more
+	          information on what data is collected, why, and how to
+	          opt-out. Telemetry will NOT be collected for any CDK CLI
+	          version prior to version 2.1100.0 - regardless of
+	          opt-in/out. You can also preview the telemetry we will start
+	          collecting by logging it to a local file, by adding
+	          `--unstable=telemetry --telemetry-file=my/local/file` to any
+	          `cdk` command.
+
+	Affected versions: cli: ^2.0.0
+
+	More information at: https://github.com/aws/aws-cdk/issues/34892
+
+
+If you don’t want to see a notice anymore, use "cdk acknowledge <id>". For example, "cdk acknowledge 34892".

@@ -8,12 +8,14 @@ const ora = require('ora');
 const chalk = require('chalk');
 const boxen = require('boxen');
 const { getConfig } = require('../utils/config');
-const { 
-  getInstanceStatus, 
+const {
+  getInstanceStatus,
   startEC2Instance,
   stopEC2Instance,
   getServerAddress,
-  waitForServerReady
+  waitForServerReady,
+  getAutoShutdownConfig,
+  setAutoShutdownConfig
 } = require('../utils/aws');
 
 // Command group registration
@@ -46,7 +48,17 @@ function register(program) {
     .command('info')
     .description('Show detailed server information')
     .action(showServerInfo);
-  
+
+  server
+    .command('auto-shutdown <value>')
+    .description('Configure auto-shutdown (minutes or "off")')
+    .action(setAutoShutdown);
+
+  server
+    .command('get-auto-shutdown')
+    .description('Get current auto-shutdown configuration')
+    .action(getAutoShutdown);
+
   return server;
 }
 
@@ -335,11 +347,67 @@ function getStatusColor(status) {
   }
 }
 
+// Get current auto-shutdown configuration
+async function getAutoShutdown() {
+  const spinner = ora('Getting auto-shutdown configuration...').start();
+
+  try {
+    const config = await getAutoShutdownConfig();
+    spinner.succeed('Retrieved auto-shutdown configuration');
+
+    console.log(chalk.bold('\n🔧 Auto-Shutdown Configuration'));
+    console.log(chalk.gray('═══════════════════════════════\n'));
+
+    if (config === 'off' || config === 'disabled') {
+      console.log(`${chalk.cyan('Status:')} ${chalk.red('DISABLED')}`);
+      console.log(`\n${chalk.yellow('⚠  The server will NOT automatically shut down when idle.')}`);
+    } else {
+      console.log(`${chalk.cyan('Status:')} ${chalk.green('ENABLED')}`);
+      console.log(`${chalk.cyan('Timeout:')} ${chalk.green(config + ' minutes')}`);
+      console.log(`\n${chalk.yellow('⏲  The server will shut down after ' + config + ' minutes of inactivity.')}`);
+    }
+    console.log('');
+  } catch (error) {
+    spinner.fail('Failed to get auto-shutdown configuration');
+    console.error(chalk.red('Error:'), error.message);
+  }
+}
+
+// Set auto-shutdown configuration
+async function setAutoShutdown(value) {
+  const spinner = ora('Setting auto-shutdown configuration...').start();
+
+  try {
+    await setAutoShutdownConfig(value);
+    spinner.succeed('Auto-shutdown configuration updated');
+
+    console.log(chalk.bold('\n✅ Auto-Shutdown Updated!'));
+    console.log(chalk.gray('═══════════════════════════\n'));
+
+    if (value === 'off' || value === 'disabled') {
+      console.log(chalk.bold.red('Status: DISABLED'));
+      console.log(`\n${chalk.yellow('⚠  The server will no longer automatically shut down when idle.')}`);
+      console.log(chalk.yellow('⚠  Make sure to manually stop the server to avoid unnecessary AWS charges.'));
+    } else {
+      console.log(chalk.bold.green('Status: ENABLED'));
+      console.log(`${chalk.cyan('Timeout:')} ${chalk.green(value + ' minutes')}`);
+      console.log(`\n${chalk.yellow('⏲  The server will now shut down after ' + value + ' minutes of inactivity.')}`);
+    }
+
+    console.log(chalk.cyan('\n💡 Note: This change will take effect the next time the server starts.\n'));
+  } catch (error) {
+    spinner.fail('Failed to set auto-shutdown configuration');
+    console.error(chalk.red('Error:'), error.message);
+  }
+}
+
 module.exports = {
   register,
   startServer,
   stopServer,
   getServerStatus,
   showServerAddress,
-  showServerInfo
+  showServerInfo,
+  getAutoShutdown,
+  setAutoShutdown
 };

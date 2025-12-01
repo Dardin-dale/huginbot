@@ -676,6 +676,60 @@ async function getStackOutputs(stackName) {
     }
 }
 
+/**
+ * Get auto-shutdown configuration from SSM
+ * @returns {Promise<string>} Auto-shutdown setting (minutes or "off")
+ */
+async function getAutoShutdownConfig() {
+    try {
+        const ssm = getSSMClient();
+        const result = await ssm.getParameter({
+            Name: '/huginbot/auto-shutdown-minutes'
+        });
+
+        if (result.Parameter?.Value) {
+            return result.Parameter.Value;
+        }
+
+        return '30'; // Default to 30 minutes if not found
+    } catch (error) {
+        if (error.name === 'ParameterNotFound') {
+            return '30'; // Default to 30 minutes if parameter doesn't exist
+        }
+        console.error('Error getting auto-shutdown config:', error);
+        throw error;
+    }
+}
+
+/**
+ * Set auto-shutdown configuration in SSM
+ * @param {string} value - Auto-shutdown setting (minutes or "off"/"disabled")
+ * @returns {Promise<void>}
+ */
+async function setAutoShutdownConfig(value) {
+    try {
+        const ssm = getSSMClient();
+
+        // Validate the value
+        if (value !== 'off' && value !== 'disabled' && (isNaN(parseInt(value)) || parseInt(value) < 0)) {
+            throw new Error('Auto-shutdown value must be a positive number (minutes) or "off"/"disabled"');
+        }
+
+        await ssm.putParameter({
+            Name: '/huginbot/auto-shutdown-minutes',
+            Value: value,
+            Type: 'String',
+            Description: 'Auto-shutdown timeout in minutes (or "off" to disable)',
+            Overwrite: true
+        });
+
+        console.log(chalk.green(`✓ Auto-shutdown set to: ${value}`));
+    } catch (error) {
+        console.error('Error setting auto-shutdown config:', error);
+        throw error;
+    }
+}
+
 module.exports = {
     getSSMClient,
     getEC2Client,
@@ -697,5 +751,7 @@ module.exports = {
     getActiveWorldFromSSM,
     listBackups,
     downloadBackup,
-    getStackOutputs
+    getStackOutputs,
+    getAutoShutdownConfig,
+    setAutoShutdownConfig
 };

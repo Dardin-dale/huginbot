@@ -3,13 +3,27 @@
 REGION=$(curl -s http://169.254.169.254/latest/meta-data/placement/region)
 INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
 PARAM_NAME="/huginbot/player-count"
-INACTIVE_THRESHOLD=600  # 10 minutes in seconds
+AUTO_SHUTDOWN_PARAM="/huginbot/auto-shutdown-minutes"
 ACTIVITY_FILE="/tmp/valheim_last_activity"
 NAMESPACE="ValheimServer"
-# Initialize last activity timestamp if not exists
-if [ ! -f "$ACTIVITY_FILE" ]; then
-  date +%s > "$ACTIVITY_FILE"
+
+# Read auto-shutdown configuration from SSM (default: 30 minutes)
+AUTO_SHUTDOWN_CONFIG=$(aws ssm get-parameter --name "$AUTO_SHUTDOWN_PARAM" --region "$REGION" --query 'Parameter.Value' --output text 2>/dev/null || echo "30")
+
+# Check if auto-shutdown is disabled
+if [ "$AUTO_SHUTDOWN_CONFIG" = "off" ] || [ "$AUTO_SHUTDOWN_CONFIG" = "disabled" ]; then
+  echo "Auto-shutdown is disabled"
+  AUTO_SHUTDOWN_ENABLED=false
+  INACTIVE_THRESHOLD=0
+else
+  echo "Auto-shutdown enabled: ${AUTO_SHUTDOWN_CONFIG} minutes"
+  AUTO_SHUTDOWN_ENABLED=true
+  INACTIVE_THRESHOLD=$((AUTO_SHUTDOWN_CONFIG * 60))  # Convert minutes to seconds
 fi
+# Always reset activity timestamp on script start (new server session)
+# This prevents immediate shutdown from stale activity data from previous runs
+echo "Resetting activity timestamp for new server session"
+date +%s > "$ACTIVITY_FILE"
 while true; do
   # Look for connected players in logs
   CURRENT_TIME=$(date +%s)
@@ -66,13 +80,13 @@ while true; do
       --unit "Seconds" \
       --region "$REGION"
     
-    # Check if we should shut down
-    if [ "$INACTIVE_TIME" -gt "$INACTIVE_THRESHOLD" ]; then
+    # Check if we should shut down (only if auto-shutdown is enabled)
+    if [ "$AUTO_SHUTDOWN_ENABLED" = true ] && [ "$INACTIVE_TIME" -gt "$INACTIVE_THRESHOLD" ]; then
       echo "Server has been inactive for more than $INACTIVE_THRESHOLD seconds. Shutting down..."
-      
+
       # Take a backup before shutting down
       /usr/local/bin/backup-valheim.sh
-      
+
       # Send notification to EventBridge
       aws events put-events --entries '[{
         "Source": "valheim.server",
@@ -80,7 +94,7 @@ while true; do
         "Detail": "{\"reason\":\"inactivity\", \"idleTime\":'"$INACTIVE_TIME"', \"timestamp\":'"$CURRENT_TIME"', \"guildId\":\"'"$GUILD_ID"'\"}",
         "EventBusName": "default"
       }]' --region "$REGION"
-      
+
       # Stop the instance
       aws ec2 stop-instances --instance-ids "$INSTANCE_ID" --region "$REGION"
       break

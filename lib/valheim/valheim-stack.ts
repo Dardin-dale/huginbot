@@ -487,6 +487,25 @@ EOF`,
 
         dockerEnvVars.push(`SERVER_ARGS="${serverArgs.join(' ')}"`);
 
+        // Create a service that updates scripts from S3 on every boot
+        userData.addCommands(
+            `cat > /etc/systemd/system/update-valheim-scripts.service << 'EOF'
+[Unit]
+Description=Update Valheim monitoring scripts from S3
+Before=playfab-monitor.service player-monitor.service
+DefaultDependencies=no
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash -c 'aws s3 cp s3://${this.backupBucket.bucketName}/scripts/valheim/monitor-playfab.sh /usr/local/bin/monitor-playfab.sh && chmod +x /usr/local/bin/monitor-playfab.sh && aws s3 cp s3://${this.backupBucket.bucketName}/scripts/valheim/monitor-players.sh /usr/local/bin/monitor-players.sh && chmod +x /usr/local/bin/monitor-players.sh'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF`,
+            "systemctl enable update-valheim-scripts.service"
+        );
+
         // Download PlayFab monitoring script from S3
         userData.addCommands(
             `aws s3 cp s3://${this.backupBucket.bucketName}/scripts/valheim/monitor-playfab.sh /usr/local/bin/monitor-playfab.sh`,
@@ -496,7 +515,8 @@ EOF`,
             `cat > /etc/systemd/system/playfab-monitor.service << 'EOF'
 [Unit]
 Description=PlayFab Join Code Monitor
-After=docker.service
+After=docker.service update-valheim-scripts.service
+Requires=update-valheim-scripts.service
 
 [Service]
 Type=simple
@@ -517,7 +537,8 @@ EOF`,
             `cat > /etc/systemd/system/player-monitor.service << 'EOF'
 [Unit]
 Description=Valheim Player Monitor
-After=docker.service
+After=docker.service update-valheim-scripts.service
+Requires=update-valheim-scripts.service
 
 [Service]
 Type=simple
@@ -534,22 +555,92 @@ EOF`,
             "systemctl enable player-monitor.service"
         );
 
-        // Start Valheim server using Docker
+        // Create Valheim server startup script that reads config from SSM
         userData.addCommands(
-            `docker run -d --name valheim-server \\
-        -p 2456-2458:2456-2458/udp \\
-        -p 2456-2458:2456-2458/tcp \\
-        -p 80:80 \\
-        -v /mnt/valheim-data/config:/config \\
-        -v /mnt/valheim-data/backups:/config/backups \\
-        -v /mnt/valheim-data/mods:/bepinex/plugins \\
-        ${dockerEnvVars.map(env => `-e ${env}`).join(" \\\n        ")} \\
-        --restart unless-stopped \\
-        --stop-timeout 120 \\
-        lloesche/valheim-server`,
+            `cat > /usr/local/bin/start-valheim-server.sh << 'EOF'
+#!/bin/bash
+# Start Valheim server Docker container with configuration from SSM
 
-            // Start the PlayFab monitoring service
-            "systemctl start playfab-monitor.service"
+REGION=$(curl -s http://169.254.169.254/latest/meta-data/placement/region)
+
+# Get active world configuration from SSM
+ACTIVE_WORLD_JSON=$(aws ssm get-parameter --name "/huginbot/active-world" --region "$REGION" --query 'Parameter.Value' --output text 2>/dev/null)
+
+if [ -z "$ACTIVE_WORLD_JSON" ]; then
+  echo "No active world configuration found, using defaults"
+  WORLD_NAME="${worldName}"
+  SERVER_NAME="${serverName}"
+  SERVER_PASS="${serverPassword}"
+else
+  echo "Loading active world configuration from SSM"
+  WORLD_NAME=$(echo "$ACTIVE_WORLD_JSON" | python3 -c "import sys, json; print(json.load(sys.stdin)['worldName'])")
+  SERVER_NAME=$(echo "$ACTIVE_WORLD_JSON" | python3 -c "import sys, json; print(json.load(sys.stdin).get('serverName', 'Valheim Server'))")
+  SERVER_PASS=$(echo "$ACTIVE_WORLD_JSON" | python3 -c "import sys, json; print(json.load(sys.stdin)['serverPassword'])")
+fi
+
+echo "Starting Valheim server with world: $WORLD_NAME"
+
+# Stop and remove existing container if it exists
+docker stop valheim-server 2>/dev/null || true
+docker rm valheim-server 2>/dev/null || true
+
+# Start new container
+docker run -d --name valheim-server \\
+  -p 2456-2458:2456-2458/udp \\
+  -p 2456-2458:2456-2458/tcp \\
+  -p 80:80 \\
+  -v /mnt/valheim-data/config:/config \\
+  -v /mnt/valheim-data/backups:/config/backups \\
+  -v /mnt/valheim-data/mods:/bepinex/plugins \\
+  -e SERVER_NAME="$SERVER_NAME" \\
+  -e WORLD_NAME="$WORLD_NAME" \\
+  -e SERVER_PASS="$SERVER_PASS" \\
+  -e TZ="America/Los_Angeles" \\
+  -e BACKUPS="true" \\
+  -e BACKUPS_DIRECTORY="/config/backups" \\
+  -e BACKUPS_CRON="${backupCron}" \\
+  -e BACKUPS_IF_IDLE="${backupIfIdle}" \\
+  -e BACKUPS_IDLE_GRACE_PERIOD="${backupIdleGrace}" \\
+  -e BACKUPS_MAX_COUNT="${backupMaxCount}" \\
+  -e BACKUPS_MAX_AGE="${backupMaxAge}" \\
+  -e BACKUPS_ZIP="${backupCompress}" \\
+  -e SERVER_PUBLIC="true" \\
+  -e UPDATE_INTERVAL="900" \\
+  -e STEAMCMD_ARGS="validate" \\
+  -e SERVER_ARGS="-crossplay" \\
+  --restart unless-stopped \\
+  --stop-timeout 120 \\
+  lloesche/valheim-server
+
+echo "Valheim server container started successfully"
+EOF`,
+            "chmod +x /usr/local/bin/start-valheim-server.sh",
+
+            // Create systemd service for Valheim server
+            `cat > /etc/systemd/system/valheim-server.service << 'EOF'
+[Unit]
+Description=Valheim Server Docker Container
+After=docker.service update-valheim-scripts.service
+Requires=docker.service
+Before=playfab-monitor.service player-monitor.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/start-valheim-server.sh
+ExecStop=/usr/bin/docker stop valheim-server
+ExecStopPost=/usr/bin/docker rm valheim-server
+
+[Install]
+WantedBy=multi-user.target
+EOF`,
+            "systemctl daemon-reload",
+            "systemctl enable valheim-server.service",
+            "systemctl start valheim-server.service",
+
+            // Start/restart the monitoring services to ensure latest scripts are loaded
+            "systemctl restart playfab-monitor.service",
+            "systemctl restart player-monitor.service"
         );
 
         // Create EC2 instance with two volumes:
