@@ -9,6 +9,16 @@ LOG_PREFIX="[PlayFab Monitor]"
 echo "$LOG_PREFIX Starting PlayFab join code monitor"
 echo "$LOG_PREFIX Region: $REGION"
 
+# Get guild ID from active world instead of relying on environment variable
+ACTIVE_WORLD_JSON=$(aws ssm get-parameter --name "/huginbot/active-world" --region "$REGION" --query 'Parameter.Value' --output text 2>/dev/null)
+if [ -n "$ACTIVE_WORLD_JSON" ]; then
+  GUILD_ID=$(echo "$ACTIVE_WORLD_JSON" | python3 -c "import sys, json; print(json.load(sys.stdin).get('discordServerId', 'unknown'))" 2>/dev/null || echo "unknown")
+  echo "$LOG_PREFIX Guild ID from active world: $GUILD_ID"
+else
+  GUILD_ID="${GUILD_ID:-unknown}"
+  echo "$LOG_PREFIX Using fallback guild ID: $GUILD_ID"
+fi
+
 while true; do
   # Look for join code in logs from server session or player joined messages
   # Try multiple patterns to catch different log formats

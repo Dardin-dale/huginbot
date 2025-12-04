@@ -91,7 +91,7 @@ export async function handler(
     // Construct the message with rich embed
     const message = {
       username: "HuginBot",
-      avatar_url: "https://i.imgur.com/xASc1QX.png", // Viking raven icon
+      avatar_url: "https://cdn.discordapp.com/attachments/1085270430593589338/1446033918343254016/Valheim-Listen-to-Hugin-Raven.jpg",
       embeds: [
         {
           title: "🎮 Valheim Server Ready!",
@@ -115,24 +115,13 @@ export async function handler(
             },
             {
               name: "How to Join",
-              value: "1. Open Valheim\n2. Select 'Start Game' → 'Join Game'\n3. Choose 'Join by code'\n4. Enter the code above\n5. When prompted for password, enter the server password",
-              inline: false
-            },
-            {
-              name: "Server Features",
-              value: "✅ Automatic backups\n✅ Discord integration\n✅ Low-latency hosting",
+              value: "1. Start game\n2. Join game\n3. Add Server\n4. Enter join code above",
               inline: false
             }
           ],
-          thumbnail: {
-            url: "https://i.imgur.com/UQYgxBG.png" // Valheim logo
-          },
-          image: {
-            url: "https://i.imgur.com/yGrVDso.png" // Valheim banner image
-          },
           footer: {
             text: "HuginBot • Server will auto-shutdown after inactivity • Type /help for commands",
-            icon_url: "https://i.imgur.com/xASc1QX.png" // Small HuginBot icon
+            icon_url: "https://static.wikia.nocookie.net/valheim/images/7/7d/Hugin.png"
           },
           timestamp: new Date().toISOString()
         }

@@ -656,6 +656,11 @@ async function handleStatusCommand(): Promise<APIGatewayProxyResult> {
       statusText = 'Stopped';
       description = 'The server is currently offline.';
       embedColor = 0xff0000;
+    } else if (status === 'stopping' || status === 'shutting-down') {
+      statusEmoji = '🛑';
+      statusText = 'Stopping';
+      description = 'Server is shutting down...';
+      embedColor = 0xff6600;
     } else if (status === 'running' && joinCode) {
       statusEmoji = '✅';
       statusText = 'Ready to Play!';
@@ -718,7 +723,7 @@ async function handleStatusCommand(): Promise<APIGatewayProxyResult> {
       });
       fields.push({
         name: 'How to Join',
-        value: '1. Open Valheim\n2. Select "Join Game"\n3. Choose "Join by code"\n4. Enter the code above',
+        value: '1. Start game\n2. Join game\n3. Add Server\n4. Enter join code above',
         inline: false,
       });
     }

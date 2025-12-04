@@ -434,9 +434,9 @@ EOF`,
             // Install jq for JSON parsing
             "yum install -y jq",
 
-            // Set up cron jobs for backups and world checking
-            `(crontab -l 2>/dev/null; echo "0 */${backupFrequencyHours} * * * /usr/local/bin/backup-valheim.sh") | crontab -`,
-            `(crontab -l 2>/dev/null; echo "*/5 * * * * /usr/local/bin/switch-valheim-world.sh") | crontab -`
+            // Set up cron job for periodic backups
+            // Note: World switching is now on-demand only (not via cron)
+            `(crontab -l 2>/dev/null; echo "0 */${backupFrequencyHours} * * * /usr/local/bin/backup-valheim.sh") | crontab -`
         );
 
         // Read backup configuration from environment variables (with defaults)
@@ -592,6 +592,7 @@ docker run -d --name valheim-server \\
   -v /mnt/valheim-data/config:/config \\
   -v /mnt/valheim-data/backups:/config/backups \\
   -v /mnt/valheim-data/mods:/bepinex/plugins \\
+  -v /mnt/valheim-data/server:/opt/valheim \\
   -e SERVER_NAME="$SERVER_NAME" \\
   -e WORLD_NAME="$WORLD_NAME" \\
   -e SERVER_PASS="$SERVER_PASS" \\
@@ -617,6 +618,7 @@ EOF`,
             "chmod +x /usr/local/bin/start-valheim-server.sh",
 
             // Create systemd service for Valheim server
+            // Note: Type=oneshot cannot have Restart= - Docker's --restart handles container restarts
             `cat > /etc/systemd/system/valheim-server.service << 'EOF'
 [Unit]
 Description=Valheim Server Docker Container
