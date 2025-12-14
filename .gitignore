@@ -1,0 +1,41 @@
+*.js
+!jest.config.js
+!test/*.test.js
+!test/**/*.test.js
+# Allow CLI JavaScript files
+!cli/**/*.js
+!register-commands.js
+# Allow bin directory scripts
+!bin/*.js
+# Allow module JavaScript files (.mjs)
+!*.mjs
+*.d.ts
+node_modules
+.env
+huginbot-config.json
+
+# CDK asset staging directory
+.cdk.staging
+cdk.out
+cdk-outputs.json
+
+# Parcel default cache directory
+.parcel-cache
+
+# Valheim world files and mods
+/worlds/*
+!/worlds/.gitkeep
+/mods/*
+!/mods/.gitkeep
+/backups/*
+!/backups/.gitkeep
+
+**/.claude/settings.local.json
+cdk.out
+
+# Log files
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+deploy.log
