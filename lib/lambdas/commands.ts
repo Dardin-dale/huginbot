@@ -296,6 +296,8 @@ export async function handler(
           return await handleHelpCommand();
         case 'setup':
           return await handleSetupCommand(body);
+        case 'mods':
+          return await handleModsCommand(data, guild_id);
         default:
           return {
             statusCode: 200,
@@ -371,6 +373,23 @@ async function handleStartCommand(worldName?: string, guildId?: string): Promise
               description: 'The server is currently booting up. Please wait a moment.',
               color: 0xffaa00,
               footer: { text: 'HuginBot • You\'ll be notified when the join code is ready' }
+            }]
+          }
+        })
+      };
+    }
+
+    if (status === 'stopping') {
+      return {
+        statusCode: 200,
+        body: JSON.stringify({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            embeds: [{
+              title: '⏸️ Server is Shutting Down',
+              description: 'The server is currently stopping. Please wait a moment for it to fully stop before starting again.',
+              color: 0xffaa00,
+              footer: { text: 'HuginBot • Try again in a moment' }
             }]
           }
         })
@@ -701,6 +720,18 @@ async function handleStatusCommand(): Promise<APIGatewayProxyResult> {
       }
     }
 
+    // Get auto-shutdown setting
+    let autoShutdownMinutes: string | undefined;
+    try {
+      const shutdownResult = await ssmClient.send(new GetParameterCommand({
+        Name: '/huginbot/auto-shutdown-minutes'
+      }));
+      autoShutdownMinutes = shutdownResult.Parameter?.Value;
+    } catch (err) {
+      console.log('Auto-shutdown parameter not found, using default');
+      autoShutdownMinutes = '20';
+    }
+
     // Determine server state
     let statusEmoji: string;
     let statusText: string;
@@ -766,6 +797,18 @@ async function handleStatusCommand(): Promise<APIGatewayProxyResult> {
       fields.push({
         name: 'Uptime',
         value: uptimeHours > 0 ? `${uptimeHours}h ${remainingMinutes}m` : `${uptimeMinutes}m`,
+        inline: true,
+      });
+    }
+
+    // Add auto-shutdown info
+    if (autoShutdownMinutes) {
+      const shutdownText = autoShutdownMinutes === 'off' || autoShutdownMinutes === 'disabled'
+        ? '⏸️ Disabled'
+        : `⏱️ ${autoShutdownMinutes}m idle`;
+      fields.push({
+        name: 'Auto-Shutdown',
+        value: shutdownText,
         inline: true,
       });
     }
@@ -962,12 +1005,280 @@ async function handleWorldsCommand(data: any, guildId: string): Promise<APIGatew
     }
   }
 
+  if (subcommand === 'info') {
+    const worldOption = data.options?.[0]?.options?.[0]?.value;
+    let worldConfig;
+
+    if (worldOption) {
+      // Find specific world
+      worldConfig = WORLD_CONFIGS.find(w =>
+        w.name.toLowerCase() === worldOption.toLowerCase() ||
+        w.worldName.toLowerCase() === worldOption.toLowerCase()
+      );
+
+      if (!worldConfig) {
+        return {
+          statusCode: 200,
+          body: JSON.stringify({
+            type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+            data: {
+              content: `❌ World "${worldOption}" not found. Use \`/worlds list\` to see available worlds.`,
+            },
+          }),
+        };
+      }
+    } else {
+      // Get active world
+      try {
+        const result = await ssmClient.send(new GetParameterCommand({ Name: '/huginbot/active-world' }));
+        const activeWorld = JSON.parse(result.Parameter?.Value || '{}');
+        worldConfig = WORLD_CONFIGS.find(w => w.name === activeWorld.name);
+
+        if (!worldConfig) {
+          return {
+            statusCode: 200,
+            body: JSON.stringify({
+              type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+              data: {
+                content: '❌ No active world found. Start a server or specify a world name.',
+              },
+            }),
+          };
+        }
+      } catch (err) {
+        return {
+          statusCode: 200,
+          body: JSON.stringify({
+            type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+            data: {
+              content: '❌ Could not determine active world. Please specify a world name.',
+            },
+          }),
+        };
+      }
+    }
+
+    // Get world overrides from environment (parse from WORLD_X_ vars)
+    let mods: string[] = [];
+    let modifiers: Record<string, string> = {};
+    let serverArgs = '-crossplay';
+    let bepInEx = 'true';
+
+    // Find the world index and get overrides
+    const worldCount = parseInt(process.env.WORLD_COUNT || '0', 10);
+    for (let i = 1; i <= worldCount; i++) {
+      if (process.env[`WORLD_${i}_NAME`] === worldConfig.name) {
+        // Check for MODS override
+        const modsEnv = process.env[`WORLD_${i}_MODS`];
+        if (modsEnv) {
+          try {
+            mods = JSON.parse(modsEnv);
+          } catch (e) { /* ignore */ }
+        }
+        // Check for MODIFIERS override
+        const modifiersEnv = process.env[`WORLD_${i}_MODIFIERS`];
+        if (modifiersEnv) {
+          try {
+            modifiers = JSON.parse(modifiersEnv);
+          } catch (e) { /* ignore */ }
+        }
+        // Get SERVER_ARGS
+        serverArgs = process.env[`WORLD_${i}_SERVER_ARGS`] || '-crossplay';
+        bepInEx = process.env[`WORLD_${i}_BEPINEX`] || 'true';
+        break;
+      }
+    }
+
+    const fields = [
+      { name: 'Valheim World', value: worldConfig.worldName, inline: true },
+      { name: 'BepInEx', value: bepInEx === 'true' ? 'Enabled' : 'Disabled', inline: true },
+    ];
+
+    if (mods.length > 0) {
+      fields.push({ name: 'Mods', value: mods.join(', '), inline: false });
+    } else {
+      fields.push({ name: 'Mods', value: 'None configured', inline: false });
+    }
+
+    // Add modifiers if any - display in a user-friendly way
+    const modifierKeys = Object.keys(modifiers);
+    if (modifierKeys.length > 0) {
+      // Check if using a preset
+      if (modifiers.preset && modifiers.preset !== 'normal') {
+        const presetNames: Record<string, string> = {
+          casual: 'Casual - Relaxed gameplay',
+          easy: 'Easy - Slightly easier',
+          hard: 'Hard - Challenging',
+          hardcore: 'Hardcore - Permadeath',
+          immersive: 'Immersive - Slower, atmospheric',
+          hammer: 'Hammer Mode - Creative/building'
+        };
+        fields.push({
+          name: 'Game Modifiers',
+          value: presetNames[modifiers.preset] || `Preset: ${modifiers.preset}`,
+          inline: false
+        });
+      } else {
+        // Individual modifiers - show friendly names
+        const modifierNames: Record<string, string> = {
+          combat: 'Combat Difficulty',
+          deathpenalty: 'Death Penalty',
+          resources: 'Resource Rate',
+          raids: 'Raid Frequency',
+          portals: 'Portal Rules'
+        };
+        const modifierDisplay = modifierKeys
+          .filter(k => k !== 'preset')
+          .map(k => `${modifierNames[k] || k}: ${modifiers[k]}`)
+          .join('\n');
+        if (modifierDisplay) {
+          fields.push({ name: 'Game Modifiers', value: modifierDisplay, inline: false });
+        }
+      }
+    } else {
+      fields.push({ name: 'Game Modifiers', value: 'Default settings', inline: false });
+    }
+
+    return {
+      statusCode: 200,
+      body: JSON.stringify({
+        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+        data: {
+          embeds: [{
+            title: `🌍 World Info: ${worldConfig.name}`,
+            color: 0x00aaff,
+            fields,
+            footer: {
+              text: 'HuginBot • Use /mods list to see all available mods'
+            }
+          }],
+        },
+      }),
+    };
+  }
+
   return {
     statusCode: 200,
     body: JSON.stringify({
       type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
       data: {
         content: 'Use `/worlds list` to see available worlds or `/worlds set-default <world>` to set a default.',
+      },
+    }),
+  };
+}
+
+// Handle /mods command
+async function handleModsCommand(data: any, guildId: string): Promise<APIGatewayProxyResult> {
+  const subcommand = data.options?.[0]?.name;
+
+  if (subcommand === 'list') {
+    const worldOption = data.options?.[0]?.options?.[0]?.value;
+    let worldConfig;
+    let worldName: string;
+
+    if (worldOption) {
+      // Find specific world
+      worldConfig = WORLD_CONFIGS.find(w =>
+        w.name.toLowerCase() === worldOption.toLowerCase() ||
+        w.worldName.toLowerCase() === worldOption.toLowerCase()
+      );
+
+      if (!worldConfig) {
+        return {
+          statusCode: 200,
+          body: JSON.stringify({
+            type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+            data: {
+              content: `❌ World "${worldOption}" not found. Use \`/worlds list\` to see available worlds.`,
+            },
+          }),
+        };
+      }
+      worldName = worldConfig.name;
+    } else {
+      // Get active world
+      try {
+        const result = await ssmClient.send(new GetParameterCommand({ Name: '/huginbot/active-world' }));
+        const activeWorld = JSON.parse(result.Parameter?.Value || '{}');
+        worldName = activeWorld.name || 'Unknown';
+        worldConfig = WORLD_CONFIGS.find(w => w.name === activeWorld.name);
+      } catch (err) {
+        return {
+          statusCode: 200,
+          body: JSON.stringify({
+            type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+            data: {
+              content: '❌ Could not determine active world. Please specify a world name.',
+            },
+          }),
+        };
+      }
+    }
+
+    // Get mods for this world
+    let mods: string[] = [];
+    const worldCount = parseInt(process.env.WORLD_COUNT || '0', 10);
+    for (let i = 1; i <= worldCount; i++) {
+      if (process.env[`WORLD_${i}_NAME`] === worldName) {
+        const modsEnv = process.env[`WORLD_${i}_MODS`];
+        if (modsEnv) {
+          try {
+            mods = JSON.parse(modsEnv);
+          } catch (e) { /* ignore */ }
+        }
+        break;
+      }
+    }
+
+    if (mods.length === 0) {
+      return {
+        statusCode: 200,
+        body: JSON.stringify({
+          type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+          data: {
+            embeds: [{
+              title: `📦 Mods for ${worldName}`,
+              description: 'No mods are configured for this world.',
+              color: 0xffaa00,
+              footer: {
+                text: 'HuginBot • Mods are managed via CLI'
+              }
+            }],
+          },
+        }),
+      };
+    }
+
+    return {
+      statusCode: 200,
+      body: JSON.stringify({
+        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+        data: {
+          embeds: [{
+            title: `📦 Mods for ${worldName}`,
+            description: `${mods.length} mod(s) enabled:`,
+            color: 0x00ff00,
+            fields: mods.map(mod => ({
+              name: mod,
+              value: 'Enabled',
+              inline: true
+            })),
+            footer: {
+              text: 'HuginBot • Use /worlds info for more details'
+            }
+          }],
+        },
+      }),
+    };
+  }
+
+  return {
+    statusCode: 200,
+    body: JSON.stringify({
+      type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
+      data: {
+        content: 'Use `/mods list [world]` to see mods for a world.',
       },
     }),
   };

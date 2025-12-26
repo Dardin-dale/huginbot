@@ -8,7 +8,7 @@ const inquirer = require('inquirer');
 const ora = require('ora');
 const chalk = require('chalk');
 const boxen = require('boxen');
-const { getConfig, saveConfig, getWorldConfig, saveWorldConfig } = require('../utils/config');
+const { getConfig, saveConfig, getWorldConfig, saveWorldConfig, getConfigWithStackOutputs } = require('../utils/config');
 const { 
   getInstanceStatus, 
   createBackup, 
@@ -23,6 +23,14 @@ const {
   removeWorldFromEnv,
   updateEnvVariable
 } = require('../utils/env-manager');
+const {
+  promptForModifierConfig,
+  parseServerArgs,
+  buildServerArgs,
+  formatModifierConfig,
+  getModifierSummary,
+  PRESETS
+} = require('../utils/valheim-modifiers');
 
 // Command group registration
 function register(program) {
@@ -104,23 +112,35 @@ async function listWorlds() {
   }
   
   // Header
-  console.log(`${chalk.bold('#')}  ${chalk.bold('Name'.padEnd(20))} ${chalk.bold('Valheim Name'.padEnd(15))} ${chalk.bold('Last Played'.padEnd(15))} ${chalk.bold('Overrides')}`);
-  console.log('-'.repeat(75));
-  
+  console.log(`${chalk.bold('#')}  ${chalk.bold('Name'.padEnd(20))} ${chalk.bold('Valheim Name'.padEnd(15))} ${chalk.bold('Modifiers'.padEnd(20))} ${chalk.bold('Mods')}`);
+  console.log('-'.repeat(80));
+
   config.worlds.forEach((world, index) => {
     const isActive = world.name === activeWorld;
     const prefix = isActive ? chalk.green('✓ ') : '  ';
     const worldName = isActive ? chalk.green(world.name.padEnd(20)) : world.name.padEnd(20);
     const valheimName = isActive ? chalk.green(world.worldName.padEnd(15)) : world.worldName.padEnd(15);
-    const lastPlayed = "Unknown".padEnd(15); // We'll implement this later
-    
-    // Check if world has custom overrides
-    const hasOverrides = world.overrides && Object.keys(world.overrides).length > 0;
-    const overridesText = hasOverrides 
-      ? chalk.cyan(`${Object.keys(world.overrides).length} custom setting${Object.keys(world.overrides).length > 1 ? 's' : ''}`)
-      : chalk.gray('default');
-    
-    console.log(`${prefix}${index + 1}. ${worldName} ${valheimName} ${lastPlayed} ${overridesText}`);
+
+    // Get modifier summary
+    let modifierSummary = 'Default';
+    try {
+      if (world.overrides?.MODIFIERS) {
+        const modConfig = JSON.parse(world.overrides.MODIFIERS);
+        modifierSummary = getModifierSummary(modConfig);
+      }
+    } catch (e) { /* ignore */ }
+    const modifiersText = modifierSummary.padEnd(20);
+
+    // Get mods count
+    let modsText = chalk.gray('None');
+    try {
+      if (world.overrides?.MODS) {
+        const mods = JSON.parse(world.overrides.MODS);
+        modsText = mods.length > 0 ? chalk.cyan(`${mods.length} mod${mods.length > 1 ? 's' : ''}`) : chalk.gray('None');
+      }
+    } catch (e) { /* ignore */ }
+
+    console.log(`${prefix}${index + 1}. ${worldName} ${valheimName} ${modifiersText} ${modsText}`);
   });
   
   console.log('');
@@ -139,13 +159,39 @@ async function showCurrentWorld() {
     const status = await getInstanceStatus();
     const address = status === 'running' ? await getServerAddress() : 'Server not running';
     
-    // Format overrides section if there are any
+    // Format modifiers section
+    let modifiersText = '';
+    try {
+      if (currentWorld.overrides?.MODIFIERS) {
+        const modConfig = JSON.parse(currentWorld.overrides.MODIFIERS);
+        modifiersText = '\n\n' + chalk.bold('🎮 Game Modifiers:') + '\n';
+        modifiersText += formatModifierConfig(modConfig);
+      }
+    } catch (e) { /* ignore */ }
+
+    // Format mods section
+    let modsText = '';
+    try {
+      if (currentWorld.overrides?.MODS) {
+        const mods = JSON.parse(currentWorld.overrides.MODS);
+        if (mods.length > 0) {
+          modsText = '\n\n' + chalk.bold('📦 BepInEx Mods:') + '\n';
+          modsText += mods.join(', ');
+        }
+      }
+    } catch (e) { /* ignore */ }
+
+    // Format overrides section if there are any (excluding MODIFIERS and MODS)
     let overridesText = '';
     if (currentWorld.overrides && Object.keys(currentWorld.overrides).length > 0) {
-      overridesText = '\n\n' + chalk.bold('🛠️ Server Overrides:') + '\n';
-      Object.entries(currentWorld.overrides).forEach(([key, value]) => {
-        overridesText += `${key}: ${chalk.cyan(value)}\n`;
-      });
+      const filteredOverrides = Object.entries(currentWorld.overrides)
+        .filter(([key]) => !['MODIFIERS', 'MODS'].includes(key));
+      if (filteredOverrides.length > 0) {
+        overridesText = '\n\n' + chalk.bold('🛠️ Server Overrides:') + '\n';
+        filteredOverrides.forEach(([key, value]) => {
+          overridesText += `${key}: ${chalk.cyan(value)}\n`;
+        });
+      }
     }
     
     console.log(boxen(
@@ -156,6 +202,8 @@ async function showCurrentWorld() {
       `Last Played: ${chalk.cyan(await getLastPlayedDate(currentWorld.name))}\n` +
       `Server Status: ${status === 'running' ? chalk.green('RUNNING') : chalk.yellow(status.toUpperCase())}\n` +
       `Join Address: ${status === 'running' ? chalk.green(address) : chalk.gray('N/A')}` +
+      modifiersText +
+      modsText +
       overridesText,
       { padding: 1, margin: 1, borderStyle: 'round', borderColor: 'green' }
     ));
@@ -373,7 +421,113 @@ async function addWorld() {
       console.log(`  ${key}: ${value}`);
     });
   }
-  
+
+  // Mod selection (if BepInEx is enabled and mods are available)
+  if (!newWorld.overrides.BEPINEX || newWorld.overrides.BEPINEX === 'true') {
+    try {
+      const { listModsInLibrary, getModManifest } = require('../utils/aws');
+      const configWithStack = await getConfigWithStackOutputs();
+
+      if (configWithStack.backupBucket) {
+        const mods = await listModsInLibrary(configWithStack.backupBucket);
+
+        if (mods.length > 0) {
+          console.log(chalk.cyan.bold('\n📦 Mod Selection'));
+          console.log(chalk.gray('Select mods to enable for this world (BepInEx mods from library)\n'));
+
+          const { configureMods } = await inquirer.prompt([
+            {
+              type: 'confirm',
+              name: 'configureMods',
+              message: `Configure mods? (${mods.length} available in library)`,
+              default: false
+            }
+          ]);
+
+          if (configureMods) {
+            const manifest = await getModManifest(configWithStack.backupBucket);
+
+            const { selectedMods } = await inquirer.prompt([
+              {
+                type: 'checkbox',
+                name: 'selectedMods',
+                message: 'Select mods to enable:',
+                choices: mods.map(mod => ({
+                  name: `${mod.name} (v${mod.version})${mod.description ? ' - ' + mod.description : ''}`,
+                  value: mod.name,
+                  checked: false
+                })),
+                pageSize: 10
+              }
+            ]);
+
+            if (selectedMods.length > 0) {
+              // Auto-resolve dependencies
+              const resolvedMods = resolveModDependencies(selectedMods, manifest);
+
+              if (resolvedMods.length > selectedMods.length) {
+                const addedDeps = resolvedMods.filter(m => !selectedMods.includes(m));
+                console.log(chalk.yellow(`\nAuto-including dependencies: ${addedDeps.join(', ')}`));
+              }
+
+              newWorld.overrides.MODS = JSON.stringify(resolvedMods);
+              console.log(chalk.green(`\nSelected ${resolvedMods.length} mod(s): ${resolvedMods.join(', ')}`));
+            }
+          }
+        }
+      }
+    } catch (error) {
+      // Silently skip mod selection if library isn't available
+      console.log(chalk.gray('\nMod library not available (deploy stack first to enable mod selection)'));
+    }
+  }
+
+  // Valheim modifier configuration (native game settings)
+  console.log(chalk.cyan.bold('\n🎮 Valheim Game Modifiers'));
+  console.log(chalk.gray('Configure built-in Valheim server settings like combat difficulty, resource rates, etc.\n'));
+
+  const { configureModifiers } = await inquirer.prompt([
+    {
+      type: 'confirm',
+      name: 'configureModifiers',
+      message: 'Configure Valheim game modifiers? (combat, resources, raids, etc.)',
+      default: false
+    }
+  ]);
+
+  if (configureModifiers) {
+    // Parse any existing modifiers from SERVER_ARGS
+    const currentModConfig = parseServerArgs(newWorld.overrides.SERVER_ARGS || '');
+
+    const { config: modConfig, serverArgs: modifierArgs } = await promptForModifierConfig(currentModConfig);
+
+    // Store the modifier config for reference
+    if (Object.keys(modConfig).length > 0) {
+      newWorld.overrides.MODIFIERS = JSON.stringify(modConfig);
+    }
+
+    // Update SERVER_ARGS to include modifier arguments
+    // Merge with existing args (preserve -crossplay, -bepinex, etc.)
+    let baseArgs = newWorld.overrides.SERVER_ARGS || '-crossplay';
+
+    // Remove any existing modifier/preset args from base
+    baseArgs = baseArgs
+      .replace(/-modifier\s+\w+\s+\w+/gi, '')
+      .replace(/-preset\s+\w+/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    // Build new modifier args (without -crossplay since it's in baseArgs)
+    const newModArgs = buildServerArgs(modConfig, false);
+
+    if (newModArgs) {
+      newWorld.overrides.SERVER_ARGS = `${baseArgs} ${newModArgs}`.trim();
+    }
+
+    console.log(chalk.green('\nModifier configuration saved!'));
+    console.log(chalk.gray(`SERVER_ARGS: ${newWorld.overrides.SERVER_ARGS}`));
+  }
+
   // Add world to .env file using indexed format
   const spinner = ora('Adding world to configuration...').start();
   try {
@@ -770,7 +924,143 @@ async function editWorld(worldName) {
       console.log(`  ${key}: ${value}`);
     });
   }
-  
+
+  // Mod selection (if BepInEx is enabled)
+  if (!editedWorld.overrides.BEPINEX || editedWorld.overrides.BEPINEX === 'true') {
+    try {
+      const { listModsInLibrary, getModManifest } = require('../utils/aws');
+      const configWithStack = await getConfigWithStackOutputs();
+
+      if (configWithStack.backupBucket) {
+        const mods = await listModsInLibrary(configWithStack.backupBucket);
+
+        if (mods.length > 0) {
+          // Parse current mods
+          let currentMods = [];
+          try {
+            if (editedWorld.overrides.MODS) {
+              currentMods = JSON.parse(editedWorld.overrides.MODS);
+            }
+          } catch (e) { /* ignore */ }
+
+          console.log(chalk.cyan.bold('\n📦 Mod Configuration'));
+          if (currentMods.length > 0) {
+            console.log(chalk.gray(`Currently enabled: ${currentMods.join(', ')}\n`));
+          }
+
+          const { configureMods } = await inquirer.prompt([
+            {
+              type: 'confirm',
+              name: 'configureMods',
+              message: `Update mod selection? (${mods.length} available in library)`,
+              default: false
+            }
+          ]);
+
+          if (configureMods) {
+            const manifest = await getModManifest(configWithStack.backupBucket);
+
+            const { selectedMods } = await inquirer.prompt([
+              {
+                type: 'checkbox',
+                name: 'selectedMods',
+                message: 'Select mods to enable:',
+                choices: mods.map(mod => ({
+                  name: `${mod.name} (v${mod.version})${mod.description ? ' - ' + mod.description : ''}`,
+                  value: mod.name,
+                  checked: currentMods.includes(mod.name)
+                })),
+                pageSize: 10
+              }
+            ]);
+
+            if (selectedMods.length > 0) {
+              // Auto-resolve dependencies
+              const resolvedMods = resolveModDependencies(selectedMods, manifest);
+
+              if (resolvedMods.length > selectedMods.length) {
+                const addedDeps = resolvedMods.filter(m => !selectedMods.includes(m));
+                console.log(chalk.yellow(`\nAuto-including dependencies: ${addedDeps.join(', ')}`));
+              }
+
+              editedWorld.overrides.MODS = JSON.stringify(resolvedMods);
+              console.log(chalk.green(`\nSelected ${resolvedMods.length} mod(s): ${resolvedMods.join(', ')}`));
+            } else {
+              // Clear mods if none selected
+              delete editedWorld.overrides.MODS;
+              console.log(chalk.yellow('\nMods cleared.'));
+            }
+          }
+        }
+      }
+    } catch (error) {
+      // Silently skip mod selection if library isn't available
+    }
+  }
+
+  // Valheim modifier configuration (native game settings)
+  // Parse any existing modifiers from SERVER_ARGS or MODIFIERS override
+  let currentModConfig = {};
+  try {
+    if (editedWorld.overrides.MODIFIERS) {
+      currentModConfig = JSON.parse(editedWorld.overrides.MODIFIERS);
+    } else {
+      currentModConfig = parseServerArgs(editedWorld.overrides.SERVER_ARGS || '');
+    }
+  } catch (e) { /* ignore parsing errors */ }
+
+  console.log(chalk.cyan.bold('\n🎮 Valheim Game Modifiers'));
+
+  // Show current modifier config if any
+  if (Object.keys(currentModConfig).length > 0) {
+    console.log(chalk.gray('Current settings: ' + getModifierSummary(currentModConfig) + '\n'));
+  } else {
+    console.log(chalk.gray('Currently using default Valheim settings.\n'));
+  }
+
+  const { configureModifiers } = await inquirer.prompt([
+    {
+      type: 'confirm',
+      name: 'configureModifiers',
+      message: 'Update Valheim game modifiers? (combat, resources, raids, etc.)',
+      default: false
+    }
+  ]);
+
+  if (configureModifiers) {
+    const { config: modConfig, serverArgs: modifierArgs } = await promptForModifierConfig(currentModConfig);
+
+    // Store or clear the modifier config
+    if (Object.keys(modConfig).length > 0) {
+      editedWorld.overrides.MODIFIERS = JSON.stringify(modConfig);
+    } else {
+      delete editedWorld.overrides.MODIFIERS;
+    }
+
+    // Update SERVER_ARGS to include modifier arguments
+    // Merge with existing args (preserve -crossplay, -bepinex, etc.)
+    let baseArgs = editedWorld.overrides.SERVER_ARGS || '-crossplay';
+
+    // Remove any existing modifier/preset args from base
+    baseArgs = baseArgs
+      .replace(/-modifier\s+\w+\s+\w+/gi, '')
+      .replace(/-preset\s+\w+/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    // Build new modifier args (without -crossplay since it's in baseArgs)
+    const newModArgs = buildServerArgs(modConfig, false);
+
+    if (newModArgs) {
+      editedWorld.overrides.SERVER_ARGS = `${baseArgs} ${newModArgs}`.trim();
+    } else {
+      editedWorld.overrides.SERVER_ARGS = baseArgs;
+    }
+
+    console.log(chalk.green('\nModifier configuration saved!'));
+    console.log(chalk.gray(`SERVER_ARGS: ${editedWorld.overrides.SERVER_ARGS}`));
+  }
+
   // Update world in .env file
   const spinner = ora('Updating world configuration...').start();
   try {
@@ -1133,6 +1423,38 @@ async function switchWorld(worldName) {
     console.log('   Server is currently stopped. Start it when ready with:');
     console.log(chalk.cyan('   huginbot server start'));
   }
+}
+
+/**
+ * Resolve mod dependencies recursively
+ * @param {string[]} modNames - Array of mod names to resolve
+ * @param {Object} manifest - Full mod manifest from S3
+ * @returns {string[]} Array of all mods including dependencies
+ */
+function resolveModDependencies(modNames, manifest) {
+  const resolved = new Set();
+  const toProcess = [...modNames];
+
+  while (toProcess.length > 0) {
+    const modName = toProcess.pop();
+
+    if (resolved.has(modName)) {
+      continue;
+    }
+
+    resolved.add(modName);
+
+    const mod = manifest.mods?.[modName];
+    if (mod?.dependencies) {
+      for (const dep of mod.dependencies) {
+        if (!resolved.has(dep)) {
+          toProcess.push(dep);
+        }
+      }
+    }
+  }
+
+  return Array.from(resolved);
 }
 
 module.exports = {

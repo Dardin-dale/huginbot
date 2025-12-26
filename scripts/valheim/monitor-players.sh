@@ -7,8 +7,8 @@ AUTO_SHUTDOWN_PARAM="/huginbot/auto-shutdown-minutes"
 ACTIVITY_FILE="/tmp/valheim_last_activity"
 NAMESPACE="ValheimServer"
 
-# Read auto-shutdown configuration from SSM (default: 30 minutes)
-AUTO_SHUTDOWN_CONFIG=$(aws ssm get-parameter --name "$AUTO_SHUTDOWN_PARAM" --region "$REGION" --query 'Parameter.Value' --output text 2>/dev/null || echo "30")
+# Read auto-shutdown configuration from SSM (default: 20 minutes)
+AUTO_SHUTDOWN_CONFIG=$(aws ssm get-parameter --name "$AUTO_SHUTDOWN_PARAM" --region "$REGION" --query 'Parameter.Value' --output text 2>/dev/null || echo "20")
 
 # Check if auto-shutdown is disabled
 if [ "$AUTO_SHUTDOWN_CONFIG" = "off" ] || [ "$AUTO_SHUTDOWN_CONFIG" = "disabled" ]; then

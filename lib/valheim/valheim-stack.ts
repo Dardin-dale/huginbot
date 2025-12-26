@@ -168,7 +168,7 @@ export class ValheimServerAwsCdkStack extends Stack {
         const backupsToKeep = props?.backupsToKeep || 7;
         const modsDirectory = props?.modsDirectory || "./mods";
         const enableBepInEx = props?.enableBepInEx !== undefined ? props?.enableBepInEx : true;
-        const idleThresholdMinutes = 10; // Server shuts down after 10 minutes of inactivity
+        // Note: Auto-shutdown is controlled by SSM parameter /huginbot/auto-shutdown-minutes (default: 20 minutes)
 
         // Create VPC with a single public subnet
         this.vpc = new Vpc(this, "valheimVpc", {
@@ -354,26 +354,25 @@ export class ValheimServerAwsCdkStack extends Stack {
             );
         }
 
-        // Setup mods directory - this will copy local mods to the EC2 instance
+        // Setup mods directory - BepInEx plugins go in /config/bepinex/plugins/
+        // The container copies them to /opt/valheim/bepinex/BepInEx/plugins/ on install/update
         userData.addCommands(
-            // Create directory for local mod files
+            // Create directory for mod staging and BepInEx plugins
             `cat > /usr/local/bin/setup-valheim-mods.sh << 'EOF'
 #!/bin/bash
-# This script copies mod files from the S3 bucket to the local mods directory
+# This script sets up the BepInEx plugins directory structure
+# Note: BepInEx creates /config/bepinex/ on first container start
+# We pre-create the plugins directory so mods can be placed there
 
-# Create BepInEx plugins directory structure
-mkdir -p /mnt/valheim-data/config/plugins
-mkdir -p /mnt/valheim-data/config/patchers
+# Create BepInEx directory structure (container will use this)
+mkdir -p /mnt/valheim-data/config/bepinex/plugins
+mkdir -p /mnt/valheim-data/config/bepinex/patchers
 
-# Check if there are mods in S3
-if aws s3 ls s3://${this.backupBucket.bucketName}/mods/ 2>/dev/null; then
-  echo "Copying mods from S3 bucket..."
-  aws s3 cp --recursive s3://${this.backupBucket.bucketName}/mods/ /mnt/valheim-data/mods/
-  cp -r /mnt/valheim-data/mods/* /mnt/valheim-data/config/plugins/
-  echo "Mods installed successfully"
-else
-  echo "No mods found in S3 bucket"
-fi
+# Mods staging directory (for S3 downloads before copying to bepinex)
+mkdir -p /mnt/valheim-data/mods
+
+echo "BepInEx plugins directory structure created"
+echo "Mods will be downloaded per-world by switch-valheim-world.sh"
 EOF`,
             "chmod +x /usr/local/bin/setup-valheim-mods.sh",
             "/usr/local/bin/setup-valheim-mods.sh"
@@ -429,7 +428,7 @@ Before=playfab-monitor.service player-monitor.service
 Type=oneshot
 # Wait for IAM credentials to be available from instance metadata service
 ExecStartPre=/bin/bash -c 'echo "Waiting for IAM credentials..."; until curl -sf --connect-timeout 2 http://169.254.169.254/latest/meta-data/iam/security-credentials/ > /dev/null 2>&1; do echo "IAM credentials not ready, retrying..."; sleep 2; done; echo "IAM credentials available"'
-ExecStart=/bin/bash -c 'aws s3 cp s3://${this.backupBucket.bucketName}/scripts/valheim/monitor-playfab.sh /usr/local/bin/monitor-playfab.sh && chmod +x /usr/local/bin/monitor-playfab.sh && aws s3 cp s3://${this.backupBucket.bucketName}/scripts/valheim/monitor-players.sh /usr/local/bin/monitor-players.sh && chmod +x /usr/local/bin/monitor-players.sh && aws s3 cp s3://${this.backupBucket.bucketName}/scripts/valheim/restore-world.sh /usr/local/bin/restore-world.sh && chmod +x /usr/local/bin/restore-world.sh && aws s3 cp s3://${this.backupBucket.bucketName}/scripts/valheim/backup-valheim.sh /usr/local/bin/backup-valheim.sh && chmod +x /usr/local/bin/backup-valheim.sh && aws s3 cp s3://${this.backupBucket.bucketName}/scripts/valheim/backup-and-stop.sh /usr/local/bin/backup-and-stop.sh && chmod +x /usr/local/bin/backup-and-stop.sh'
+ExecStart=/bin/bash -c 'aws s3 cp s3://${this.backupBucket.bucketName}/scripts/valheim/monitor-playfab.sh /usr/local/bin/monitor-playfab.sh && chmod +x /usr/local/bin/monitor-playfab.sh && aws s3 cp s3://${this.backupBucket.bucketName}/scripts/valheim/monitor-players.sh /usr/local/bin/monitor-players.sh && chmod +x /usr/local/bin/monitor-players.sh && aws s3 cp s3://${this.backupBucket.bucketName}/scripts/valheim/restore-world.sh /usr/local/bin/restore-world.sh && chmod +x /usr/local/bin/restore-world.sh && aws s3 cp s3://${this.backupBucket.bucketName}/scripts/valheim/backup-valheim.sh /usr/local/bin/backup-valheim.sh && chmod +x /usr/local/bin/backup-valheim.sh && aws s3 cp s3://${this.backupBucket.bucketName}/scripts/valheim/backup-and-stop.sh /usr/local/bin/backup-and-stop.sh && chmod +x /usr/local/bin/backup-and-stop.sh && aws s3 cp s3://${this.backupBucket.bucketName}/scripts/valheim/switch-valheim-world.sh /usr/local/bin/switch-valheim-world.sh && chmod +x /usr/local/bin/switch-valheim-world.sh'
 RemainAfterExit=yes
 TimeoutStartSec=300
 
@@ -439,18 +438,9 @@ EOF`,
             "systemctl enable update-valheim-scripts.service"
         );
 
-        // Download restore-world script from S3
+        // Note: Scripts are downloaded by update-valheim-scripts.service on every boot
+        // Setup systemd services for monitoring scripts
         userData.addCommands(
-            `aws s3 cp s3://${this.backupBucket.bucketName}/scripts/valheim/restore-world.sh /usr/local/bin/restore-world.sh`,
-            "chmod +x /usr/local/bin/restore-world.sh"
-        );
-
-        // Download PlayFab monitoring script from S3
-        userData.addCommands(
-            `aws s3 cp s3://${this.backupBucket.bucketName}/scripts/valheim/monitor-playfab.sh /usr/local/bin/monitor-playfab.sh`,
-            "chmod +x /usr/local/bin/monitor-playfab.sh",
-
-            // Setup a systemd service for the monitoring script
             `cat > /etc/systemd/system/playfab-monitor.service << 'EOF'
 [Unit]
 Description=PlayFab Join Code Monitor
@@ -468,11 +458,6 @@ Environment=GUILD_ID=${props?.worldConfigurations?.[0]?.discordServerId || 'unkn
 WantedBy=multi-user.target
 EOF`,
 
-            // Download player monitoring script from S3
-            `aws s3 cp s3://${this.backupBucket.bucketName}/scripts/valheim/monitor-players.sh /usr/local/bin/monitor-players.sh`,
-            "chmod +x /usr/local/bin/monitor-players.sh",
-
-            // Setup systemd service for the player monitoring
             `cat > /etc/systemd/system/player-monitor.service << 'EOF'
 [Unit]
 Description=Valheim Player Monitor
@@ -530,7 +515,6 @@ docker run -d --name valheim-server \\
   -p 80:80 \\
   -v /mnt/valheim-data/config:/config \\
   -v /mnt/valheim-data/backups:/config/backups \\
-  -v /mnt/valheim-data/mods:/bepinex/plugins \\
   -v /mnt/valheim-data/server:/opt/valheim \\
   -e SERVER_NAME="$SERVER_NAME" \\
   -e WORLD_NAME="$WORLD_NAME" \\
@@ -665,6 +649,15 @@ EOF`,
             parameterName: "/huginbot/backup-bucket-name",
             stringValue: this.backupBucket.bucketName,
             description: "S3 bucket name for Valheim backups",
+        });
+
+        // Auto-shutdown configuration (minutes of idle time before server stops)
+        // Set to "off" or "disabled" to disable auto-shutdown
+        const autoShutdownMinutes = process.env.AUTO_SHUTDOWN_MINUTES || '20';
+        new StringParameter(this, "AutoShutdownParam", {
+            parameterName: "/huginbot/auto-shutdown-minutes",
+            stringValue: autoShutdownMinutes,
+            description: "Minutes of idle time before auto-shutdown (or 'off' to disable)",
         });
 
         // Note: Discord webhooks are now stored in SSM Parameter Store
@@ -910,6 +903,70 @@ EOF`,
             description: 'Trigger notification when EC2 instance stops (fallback)'
         });
         ec2StateChangeRule.addTarget(new LambdaFunction(discordNotificationsFunction));
+
+        // === ROUTE 53 CUSTOM DOMAIN (OPTIONAL) ===
+        // If CUSTOM_URL is set, create Lambda to update Route53 when EC2 IP changes
+        const customUrl = process.env.CUSTOM_URL;
+        if (customUrl) {
+            console.log(`Custom domain configured: ${customUrl}`);
+
+            // Create Lambda function to update Route53
+            const route53UpdateFunction = new NodejsFunction(this, 'Route53UpdateFunction', {
+                ...lambdaDefaultProps,
+                entry: path.join(__dirname, '../lambdas/update-route53.ts'),
+                handler: 'handler',
+                timeout: Duration.seconds(30),
+                environment: {
+                    ...lambdaDefaultProps.environment,
+                    CUSTOM_DOMAIN: customUrl,
+                },
+            });
+
+            // Grant permissions to read EC2 instance info
+            route53UpdateFunction.addToRolePolicy(new PolicyStatement({
+                effect: Effect.ALLOW,
+                actions: [
+                    'ec2:DescribeInstances',
+                ],
+                resources: ['*'], // DescribeInstances doesn't support resource-level permissions
+            }));
+
+            // Grant permissions to update Route53 records
+            route53UpdateFunction.addToRolePolicy(new PolicyStatement({
+                effect: Effect.ALLOW,
+                actions: [
+                    'route53:ListHostedZonesByName',
+                    'route53:ChangeResourceRecordSets',
+                    'route53:GetChange', // Optional: check status of DNS changes
+                ],
+                resources: ['*'], // Route53 requires wildcard for ListHostedZonesByName
+            }));
+
+            // Create EventBridge rule for EC2 state changes (running state)
+            const route53UpdateRule = new Rule(this, 'Route53UpdateRule', {
+                eventPattern: {
+                    source: ['aws.ec2'],
+                    detailType: ['EC2 Instance State-change Notification'],
+                    detail: {
+                        'instance-id': [this.ec2Instance.instanceId],
+                        'state': ['running']
+                    }
+                },
+                description: 'Update Route53 DNS when Valheim server starts'
+            });
+
+            route53UpdateRule.addTarget(new LambdaFunction(route53UpdateFunction));
+
+            // Also pass custom domain to discord notifications lambda
+            discordNotificationsFunction.addEnvironment('CUSTOM_DOMAIN', customUrl);
+
+            // Output the custom domain
+            new CfnOutput(this, "CustomDomain", {
+                value: `${customUrl}:2456`,
+                description: "Custom domain for connecting to Valheim server",
+                exportName: "ValheimServerCustomDomain",
+            });
+        }
 
         // Outputs
         new CfnOutput(this, "InstanceId", {

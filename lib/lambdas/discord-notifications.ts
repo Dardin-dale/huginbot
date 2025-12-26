@@ -131,6 +131,63 @@ async function handleJoinCodeEvent(detail: any): Promise<any> {
     console.log('No active world parameter found, using default');
   }
 
+  // Check if custom domain is configured
+  const customDomain = process.env.CUSTOM_DOMAIN;
+
+  // Build fields array based on whether custom domain is set
+  const fields: any[] = [
+    {
+      name: "World",
+      value: worldName,
+      inline: true
+    }
+  ];
+
+  if (customDomain) {
+    // Custom domain is configured - show it prominently
+    fields.push(
+      {
+        name: "Server Address",
+        value: `\`${customDomain}:2456\``,
+        inline: true
+      },
+      {
+        name: "Server Password",
+        value: `||${serverPassword}||`, // Spoiler tag to hide password
+        inline: true
+      },
+      {
+        name: "How to Join",
+        value: `1. Start Valheim\n2. Join Game → Add Server\n3. Enter: \`${customDomain}:2456\`\n4. Enter password (click above to reveal)`,
+        inline: false
+      },
+      {
+        name: "Alternative: Join Code",
+        value: `If direct connect doesn't work, use join code: \`${joinCode}\``,
+        inline: false
+      }
+    );
+  } else {
+    // No custom domain - use join code
+    fields.push(
+      {
+        name: "Join Code",
+        value: `\`${joinCode}\``,
+        inline: true
+      },
+      {
+        name: "Server Password",
+        value: `||${serverPassword}||`, // Spoiler tag to hide password
+        inline: true
+      },
+      {
+        name: "How to Join",
+        value: "1. Start game\n2. Join game\n3. Add Server\n4. Enter join code above",
+        inline: false
+      }
+    );
+  }
+
   return {
     username: "HuginBot",
     avatar_url: "https://cdn.discordapp.com/attachments/1085270430593589338/1446033918343254016/Valheim-Listen-to-Hugin-Raven.jpg",
@@ -139,28 +196,7 @@ async function handleJoinCodeEvent(detail: any): Promise<any> {
         title: "🎮 Valheim Server Ready!",
         description: `Your Valheim journey awaits! The server is now online and ready for adventure.`,
         color: 0x33cc33, // Green color
-        fields: [
-          {
-            name: "World",
-            value: worldName,
-            inline: true
-          },
-          {
-            name: "Join Code",
-            value: `\`${joinCode}\``,
-            inline: true
-          },
-          {
-            name: "Server Password",
-            value: `||${serverPassword}||`, // Spoiler tag to hide password
-            inline: true
-          },
-          {
-            name: "How to Join",
-            value: "1. Start game\n2. Join game\n3. Add Server\n4. Enter join code above",
-            inline: false
-          }
-        ],
+        fields: fields,
         footer: {
           text: "HuginBot • Server will auto-shutdown after inactivity • Type /help for commands",
           icon_url: "https://static.wikia.nocookie.net/valheim/images/7/7d/Hugin.png"

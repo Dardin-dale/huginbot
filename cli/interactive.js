@@ -26,6 +26,7 @@ const {
   listBackups: listBackupFiles, // alias to match our usage
   rotateBackups
 } = require('./commands/backup');
+const { modsMenu } = require('./commands/mods');
 const { runSetupWizard } = require('./wizard');
 
 /**
@@ -48,6 +49,10 @@ async function mainMenu() {
     {
       name: `${chalk.magenta('💾')} Backup Management`,
       value: 'backup'
+    },
+    {
+      name: `${chalk.cyan('📦')} Mod Management`,
+      value: 'mods'
     },
     {
       name: `${chalk.red('⚙️')} Advanced Settings`,
@@ -81,6 +86,9 @@ async function mainMenu() {
       break;
     case 'backup':
       await backupMenu();
+      break;
+    case 'mods':
+      await modsMenu();
       break;
     case 'advanced':
       await advancedMenu();

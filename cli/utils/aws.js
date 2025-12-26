@@ -8,7 +8,7 @@ const { STSClient, GetCallerIdentityCommand } = require('@aws-sdk/client-sts');
 const { fromIni, defaultProvider } = require('@aws-sdk/credential-provider-node');
 const { EC2 } = require('@aws-sdk/client-ec2');
 const { CloudFormation } = require('@aws-sdk/client-cloudformation');
-const { S3Client, ListObjectsV2Command, GetObjectCommand } = require('@aws-sdk/client-s3');
+const { S3Client, ListObjectsV2Command, GetObjectCommand, PutObjectCommand, DeleteObjectsCommand } = require('@aws-sdk/client-s3');
 const { spawn } = require('child_process');
 const ora = require('ora');
 const chalk = require('chalk');
@@ -796,6 +796,243 @@ async function setAutoShutdownConfig(value) {
     }
 }
 
+// ============================================
+// Mod Library S3 Operations
+// ============================================
+
+/**
+ * Get the mod manifest from S3
+ * @param {string} bucketName - The S3 bucket name
+ * @returns {Promise<Object>} The mod manifest object
+ */
+async function getModManifest(bucketName) {
+    try {
+        const s3 = getS3Client();
+        const command = new GetObjectCommand({
+            Bucket: bucketName,
+            Key: 'mods/manifest.json'
+        });
+
+        const response = await s3.send(command);
+        const bodyString = await response.Body.transformToString();
+        return JSON.parse(bodyString);
+    } catch (error) {
+        if (error.name === 'NoSuchKey') {
+            // Return empty manifest if none exists
+            return {
+                version: '1.0',
+                mods: {},
+                lastUpdated: new Date().toISOString()
+            };
+        }
+        throw error;
+    }
+}
+
+/**
+ * Update the mod manifest in S3
+ * @param {string} bucketName - The S3 bucket name
+ * @param {Object} manifest - The manifest object to save
+ * @returns {Promise<void>}
+ */
+async function updateModManifest(bucketName, manifest) {
+    const s3 = getS3Client();
+
+    // Update timestamp
+    manifest.lastUpdated = new Date().toISOString();
+
+    const command = new PutObjectCommand({
+        Bucket: bucketName,
+        Key: 'mods/manifest.json',
+        Body: JSON.stringify(manifest, null, 2),
+        ContentType: 'application/json'
+    });
+
+    await s3.send(command);
+}
+
+/**
+ * List mods in the S3 library
+ * @param {string} bucketName - The S3 bucket name
+ * @returns {Promise<Array>} Array of mod metadata objects
+ */
+async function listModsInLibrary(bucketName) {
+    try {
+        const manifest = await getModManifest(bucketName);
+        return Object.values(manifest.mods);
+    } catch (error) {
+        console.error('Error listing mods:', error);
+        throw error;
+    }
+}
+
+/**
+ * Get metadata for a specific mod
+ * @param {string} bucketName - The S3 bucket name
+ * @param {string} modName - The mod name
+ * @returns {Promise<Object|null>} Mod metadata or null if not found
+ */
+async function getModMetadata(bucketName, modName) {
+    try {
+        const manifest = await getModManifest(bucketName);
+        return manifest.mods[modName] || null;
+    } catch (error) {
+        console.error('Error getting mod metadata:', error);
+        throw error;
+    }
+}
+
+/**
+ * Upload a mod to the S3 library
+ * @param {string} bucketName - The S3 bucket name
+ * @param {string} modName - The mod name
+ * @param {Object} metadata - The mod metadata
+ * @param {Array<{localPath: string, filename: string}>} files - Files to upload
+ * @returns {Promise<void>}
+ */
+async function uploadModToLibrary(bucketName, modName, metadata, files) {
+    const s3 = getS3Client();
+
+    try {
+        // Upload each file using PutObjectCommand (works for files under 5GB)
+        for (const file of files) {
+            const fileContent = fs.readFileSync(file.localPath);
+            const filename = file.filename || path.basename(file.localPath);
+            const s3Key = `mods/${modName}/plugins/${filename}`;
+
+            console.log(chalk.gray(`  Uploading ${filename}...`));
+
+            const uploadCommand = new PutObjectCommand({
+                Bucket: bucketName,
+                Key: s3Key,
+                Body: fileContent
+            });
+
+            await s3.send(uploadCommand);
+        }
+
+        // Upload metadata
+        const metadataCommand = new PutObjectCommand({
+            Bucket: bucketName,
+            Key: `mods/${modName}/metadata.json`,
+            Body: JSON.stringify(metadata, null, 2),
+            ContentType: 'application/json'
+        });
+
+        await s3.send(metadataCommand);
+
+        // Update manifest
+        const manifest = await getModManifest(bucketName);
+        manifest.mods[modName] = metadata;
+        await updateModManifest(bucketName, manifest);
+
+    } catch (error) {
+        console.error('Error uploading mod:', error);
+        throw error;
+    }
+}
+
+/**
+ * Delete a mod from the S3 library
+ * @param {string} bucketName - The S3 bucket name
+ * @param {string} modName - The mod name to delete
+ * @returns {Promise<void>}
+ */
+async function deleteModFromLibrary(bucketName, modName) {
+    const s3 = getS3Client();
+
+    try {
+        // List all objects in the mod folder
+        const listCommand = new ListObjectsV2Command({
+            Bucket: bucketName,
+            Prefix: `mods/${modName}/`
+        });
+
+        const listResponse = await s3.send(listCommand);
+
+        if (listResponse.Contents && listResponse.Contents.length > 0) {
+            // Delete all objects
+            const deleteCommand = new DeleteObjectsCommand({
+                Bucket: bucketName,
+                Delete: {
+                    Objects: listResponse.Contents.map(obj => ({ Key: obj.Key }))
+                }
+            });
+
+            await s3.send(deleteCommand);
+        }
+
+        // Update manifest
+        const manifest = await getModManifest(bucketName);
+        delete manifest.mods[modName];
+        await updateModManifest(bucketName, manifest);
+
+    } catch (error) {
+        console.error('Error deleting mod:', error);
+        throw error;
+    }
+}
+
+/**
+ * Download mod files from S3 library
+ * @param {string} bucketName - The S3 bucket name
+ * @param {string} modName - The mod name
+ * @param {string} downloadDir - Local directory to download to
+ * @returns {Promise<string[]>} Array of downloaded file paths
+ */
+async function downloadModFiles(bucketName, modName, downloadDir) {
+    const s3 = getS3Client();
+    const downloadedFiles = [];
+
+    try {
+        // List files in mod's plugins folder
+        const listCommand = new ListObjectsV2Command({
+            Bucket: bucketName,
+            Prefix: `mods/${modName}/plugins/`
+        });
+
+        const listResponse = await s3.send(listCommand);
+
+        if (!listResponse.Contents || listResponse.Contents.length === 0) {
+            throw new Error(`No files found for mod: ${modName}`);
+        }
+
+        // Create download directory if needed
+        if (!fs.existsSync(downloadDir)) {
+            fs.mkdirSync(downloadDir, { recursive: true });
+        }
+
+        // Download each file
+        for (const obj of listResponse.Contents) {
+            const filename = path.basename(obj.Key);
+            if (!filename) continue; // Skip folder entries
+
+            const localPath = path.join(downloadDir, filename);
+
+            const getCommand = new GetObjectCommand({
+                Bucket: bucketName,
+                Key: obj.Key
+            });
+
+            const response = await s3.send(getCommand);
+            const fileStream = fs.createWriteStream(localPath);
+
+            await new Promise((resolve, reject) => {
+                response.Body.pipe(fileStream);
+                response.Body.on('error', reject);
+                fileStream.on('finish', resolve);
+            });
+
+            downloadedFiles.push(localPath);
+        }
+
+        return downloadedFiles;
+    } catch (error) {
+        console.error('Error downloading mod files:', error);
+        throw error;
+    }
+}
+
 module.exports = {
     getSSMClient,
     getEC2Client,
@@ -820,5 +1057,13 @@ module.exports = {
     uploadBackup,
     getStackOutputs,
     getAutoShutdownConfig,
-    setAutoShutdownConfig
+    setAutoShutdownConfig,
+    // Mod library operations
+    getModManifest,
+    updateModManifest,
+    listModsInLibrary,
+    getModMetadata,
+    uploadModToLibrary,
+    deleteModFromLibrary,
+    downloadModFiles
 };

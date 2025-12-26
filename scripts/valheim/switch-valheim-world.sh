@@ -155,6 +155,65 @@ else
   echo "Restore script not found, skipping world restore"
 fi
 
+# ============================================
+# Per-World Mod Management
+# ============================================
+# BepInEx plugins go in /config/bepinex/plugins/
+# The container copies them to /opt/valheim/bepinex/BepInEx/plugins/ on install/update
+BEPINEX_PLUGINS_DIR="/mnt/valheim-data/config/bepinex/plugins"
+
+# Ensure BepInEx directory structure exists
+mkdir -p "$BEPINEX_PLUGINS_DIR"
+mkdir -p /mnt/valheim-data/config/bepinex/patchers
+
+# Clear existing plugins for fresh world-specific mods
+echo "Clearing BepInEx plugins directory for world switch..."
+rm -rf "$BEPINEX_PLUGINS_DIR"/*
+
+# If BepInEx is disabled, we're done with mods section
+if [ "$BEPINEX" != "true" ]; then
+  echo "BepInEx disabled for this world, plugins directory cleared"
+else
+  # Get backup bucket name from SSM for mod downloads
+  BACKUP_BUCKET_PARAM="/huginbot/backup-bucket-name"
+  if BACKUP_BUCKET=$(aws ssm get-parameter --name "$BACKUP_BUCKET_PARAM" --region "$REGION" --query "Parameter.Value" --output text 2>/dev/null); then
+    echo "Backup bucket: $BACKUP_BUCKET"
+
+    # Extract MODS from overrides
+    MODS_JSON=$(echo "$OVERRIDES_JSON" | jq -r '.MODS // "[]"')
+    echo "World mods configuration: $MODS_JSON"
+
+    # Download per-world mods if configured
+    if [ "$MODS_JSON" != "[]" ] && [ "$MODS_JSON" != "null" ] && [ -n "$MODS_JSON" ]; then
+      echo "Downloading per-world mods to BepInEx plugins directory..."
+
+      # Parse mod names from JSON array and download each
+      MOD_COUNT=0
+      for MOD_NAME in $(echo "$MODS_JSON" | jq -r '.[]'); do
+        echo "  Downloading mod: $MOD_NAME"
+
+        # Download all plugin files for this mod from S3 directly to BepInEx plugins
+        if aws s3 cp "s3://${BACKUP_BUCKET}/mods/${MOD_NAME}/plugins/" "$BEPINEX_PLUGINS_DIR/" --recursive 2>/dev/null; then
+          echo "    Downloaded: $MOD_NAME"
+          MOD_COUNT=$((MOD_COUNT + 1))
+        else
+          echo "    WARNING: Mod $MOD_NAME not found in library"
+        fi
+      done
+
+      echo "Downloaded $MOD_COUNT mod(s) for this world"
+    else
+      echo "No per-world mods configured for this world"
+    fi
+  else
+    echo "WARNING: Could not get backup bucket name, skipping mod configuration"
+  fi
+fi
+
+# Set correct permissions on BepInEx directory
+chmod -R 755 /mnt/valheim-data/config/bepinex/
+chown -R 1000:1000 /mnt/valheim-data/config/bepinex/ 2>/dev/null || true
+
 # Get webhook URL for notifications (if available)
 DISCORD_SERVER_ID=$(echo "$PARAM_VALUE" | jq -r '.discordServerId' 2>/dev/null || echo "")
 WEBHOOK_PARAM_NAME="/huginbot/discord-webhook/$DISCORD_SERVER_ID"
@@ -235,7 +294,6 @@ SERVER_CMD="docker run -d --name valheim-server \
   --cap-add=sys_nice \
   -v /mnt/valheim-data/config:/config \
   -v /mnt/valheim-data/backups:/config/backups \
-  -v /mnt/valheim-data/mods:/bepinex/plugins \
   -v /mnt/valheim-data/opt-valheim:/opt/valheim \
   -e SERVER_NAME=\"$SERVER_NAME\" \
   -e WORLD_NAME=\"$WORLD_NAME\" \
