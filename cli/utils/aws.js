@@ -1033,6 +1033,63 @@ async function downloadModFiles(bucketName, modName, downloadDir) {
     }
 }
 
+/**
+ * Update scripts on a running EC2 instance from S3
+ * @param {boolean} restartServer - Whether to restart the Valheim server after updating scripts
+ * @returns {Promise<Object>} Result with command ID and status
+ */
+async function updateScripts(restartServer = false) {
+    try {
+        const config = getConfig();
+        const instanceId = config.instanceId;
+
+        if (!instanceId) {
+            throw new Error('No instance ID found in configuration');
+        }
+
+        // Check if instance is running
+        const status = await getInstanceStatus();
+        if (status !== 'running') {
+            throw new Error(`Server is not running (status: ${status}). Start it first.`);
+        }
+
+        const ssm = getSSMClient();
+
+        // Build command list
+        const commands = [
+            'echo "Updating scripts from S3..."',
+            'systemctl restart update-valheim-scripts.service',
+            'echo "Scripts updated successfully"'
+        ];
+
+        if (restartServer) {
+            commands.push(
+                'echo "Restarting Valheim server..."',
+                'systemctl restart valheim-server.service',
+                'echo "Server restart initiated"'
+            );
+        }
+
+        const result = await ssm.sendCommand({
+            DocumentName: 'AWS-RunShellScript',
+            InstanceIds: [instanceId],
+            Parameters: {
+                commands: commands
+            },
+            TimeoutSeconds: 300
+        });
+
+        return {
+            commandId: result.Command.CommandId,
+            instanceId: instanceId,
+            restartServer: restartServer
+        };
+    } catch (error) {
+        console.error('Error updating scripts:', error);
+        throw error;
+    }
+}
+
 module.exports = {
     getSSMClient,
     getEC2Client,
@@ -1065,5 +1122,6 @@ module.exports = {
     getModMetadata,
     uploadModToLibrary,
     deleteModFromLibrary,
-    downloadModFiles
+    downloadModFiles,
+    updateScripts
 };

@@ -1,5 +1,6 @@
 import * as cdk from "aws-cdk-lib";
-import { Annotations, CfnOutput, Duration, Stack, StackProps, Tags } from "aws-cdk-lib";
+import { Annotations, CfnOutput, CustomResource, Duration, Stack, StackProps, Tags } from "aws-cdk-lib";
+import { Provider } from "aws-cdk-lib/custom-resources";
 import {
     BlockDeviceVolume,
     CfnVolume,
@@ -428,7 +429,7 @@ Before=playfab-monitor.service player-monitor.service
 Type=oneshot
 # Wait for IAM credentials to be available from instance metadata service
 ExecStartPre=/bin/bash -c 'echo "Waiting for IAM credentials..."; until curl -sf --connect-timeout 2 http://169.254.169.254/latest/meta-data/iam/security-credentials/ > /dev/null 2>&1; do echo "IAM credentials not ready, retrying..."; sleep 2; done; echo "IAM credentials available"'
-ExecStart=/bin/bash -c 'aws s3 cp s3://${this.backupBucket.bucketName}/scripts/valheim/monitor-playfab.sh /usr/local/bin/monitor-playfab.sh && chmod +x /usr/local/bin/monitor-playfab.sh && aws s3 cp s3://${this.backupBucket.bucketName}/scripts/valheim/monitor-players.sh /usr/local/bin/monitor-players.sh && chmod +x /usr/local/bin/monitor-players.sh && aws s3 cp s3://${this.backupBucket.bucketName}/scripts/valheim/restore-world.sh /usr/local/bin/restore-world.sh && chmod +x /usr/local/bin/restore-world.sh && aws s3 cp s3://${this.backupBucket.bucketName}/scripts/valheim/backup-valheim.sh /usr/local/bin/backup-valheim.sh && chmod +x /usr/local/bin/backup-valheim.sh && aws s3 cp s3://${this.backupBucket.bucketName}/scripts/valheim/backup-and-stop.sh /usr/local/bin/backup-and-stop.sh && chmod +x /usr/local/bin/backup-and-stop.sh && aws s3 cp s3://${this.backupBucket.bucketName}/scripts/valheim/switch-valheim-world.sh /usr/local/bin/switch-valheim-world.sh && chmod +x /usr/local/bin/switch-valheim-world.sh'
+ExecStart=/bin/bash -c 'aws s3 cp s3://${this.backupBucket.bucketName}/scripts/valheim/monitor-playfab.sh /usr/local/bin/monitor-playfab.sh && chmod +x /usr/local/bin/monitor-playfab.sh && aws s3 cp s3://${this.backupBucket.bucketName}/scripts/valheim/monitor-players.sh /usr/local/bin/monitor-players.sh && chmod +x /usr/local/bin/monitor-players.sh && aws s3 cp s3://${this.backupBucket.bucketName}/scripts/valheim/restore-world.sh /usr/local/bin/restore-world.sh && chmod +x /usr/local/bin/restore-world.sh && aws s3 cp s3://${this.backupBucket.bucketName}/scripts/valheim/backup-valheim.sh /usr/local/bin/backup-valheim.sh && chmod +x /usr/local/bin/backup-valheim.sh && aws s3 cp s3://${this.backupBucket.bucketName}/scripts/valheim/backup-and-stop.sh /usr/local/bin/backup-and-stop.sh && chmod +x /usr/local/bin/backup-and-stop.sh && aws s3 cp s3://${this.backupBucket.bucketName}/scripts/valheim/start-valheim.sh /usr/local/bin/start-valheim.sh && chmod +x /usr/local/bin/start-valheim.sh && aws s3 cp s3://${this.backupBucket.bucketName}/scripts/valheim/switch-valheim-world.sh /usr/local/bin/switch-valheim-world.sh && chmod +x /usr/local/bin/switch-valheim-world.sh'
 RemainAfterExit=yes
 TimeoutStartSec=300
 
@@ -534,6 +535,8 @@ EOF`,
             "chmod +x /usr/local/bin/start-valheim-server.sh",
 
             // Create systemd service for Valheim server
+            // Uses start-valheim.sh for normal startup (no backup step)
+            // switch-valheim-world.sh is only used when actually switching worlds (includes backup)
             // Note: Type=oneshot cannot have Restart= - Docker's --restart handles container restarts
             `cat > /etc/systemd/system/valheim-server.service << 'EOF'
 [Unit]
@@ -545,7 +548,9 @@ Before=playfab-monitor.service player-monitor.service
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/usr/local/bin/start-valheim-server.sh
+# Use start-valheim.sh for normal startup (reads config from SSM, sets up mods, no backup)
+# switch-valheim-world.sh should only be called when actually switching worlds
+ExecStart=/usr/local/bin/start-valheim.sh
 ExecStop=/usr/bin/docker stop valheim-server
 ExecStopPost=/usr/bin/docker rm valheim-server
 
@@ -576,6 +581,45 @@ EOF`,
         });
         dataVolume.applyRemovalPolicy(cdk.RemovalPolicy.RETAIN);
 
+        // Create Lambda for volume management (detaches volume from old instances during replacement)
+        const volumeManagerFunction = new NodejsFunction(this, 'VolumeManagerFunction', {
+            runtime: Runtime.NODEJS_18_X,
+            handler: 'handler',
+            entry: path.join(__dirname, '../lambdas/volume-manager.ts'),
+            timeout: Duration.minutes(10),
+            description: 'Manages EBS volume attachment for EC2 instance replacement',
+        });
+
+        // Grant the Lambda permission to manage EC2 volumes and instances
+        volumeManagerFunction.addToRolePolicy(new PolicyStatement({
+            effect: Effect.ALLOW,
+            actions: [
+                'ec2:DescribeVolumes',
+                'ec2:DescribeInstances',
+                'ec2:DetachVolume',
+                'ec2:StopInstances',
+            ],
+            resources: ['*'], // EC2 describe actions require * resource
+        }));
+
+        // Create Custom Resource provider
+        const volumeManagerProvider = new Provider(this, 'VolumeManagerProvider', {
+            onEventHandler: volumeManagerFunction,
+        });
+
+        // Custom Resource that ensures the volume is detached before instance creation
+        const volumeDetach = new CustomResource(this, 'VolumeDetachResource', {
+            serviceToken: volumeManagerProvider.serviceToken,
+            properties: {
+                VolumeId: dataVolume.ref,
+                // Trigger update when deployment version changes
+                DeploymentVersion: '2025-01-14-v1',
+            },
+        });
+
+        // Ensure volume is detached before creating new instance
+        volumeDetach.node.addDependency(dataVolume);
+
         // Create EC2 instance with only root volume
         // Data volume is attached separately to survive instance replacements
         this.ec2Instance = new Instance(this, "ValheimServerInstanceV2", {
@@ -597,7 +641,10 @@ EOF`,
         });
 
         // Add deployment version tag to force replacement when needed
-        Tags.of(this.ec2Instance).add('DeploymentVersion', '2025-12-13-v2');
+        Tags.of(this.ec2Instance).add('DeploymentVersion', '2025-01-14-v1');
+
+        // Ensure volume is detached from old instances before new instance is created
+        this.ec2Instance.node.addDependency(volumeDetach);
 
         // Attach the data volume to the instance
         // This attachment is recreated when instance is replaced, but volume persists

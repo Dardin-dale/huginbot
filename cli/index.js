@@ -32,43 +32,55 @@ const { runSetupWizard } = require('./wizard');
 const interactive = require('./interactive');
 
 /**
+ * Display the HuginBot splash screen with raven ASCII art
+ */
+function displaySplash() {
+  // Raven artwork (from JPEG converted to ASCII)
+  console.log(chalk.blue(`
+                 **#%
+               #@@@*%@@%
+            -@@@@@@@@@@@##%%              %%
+                 #@@@@%*@*%%#%###%##% %#
+                 +*%%@*@%###@%%%#%###*#+
+                  #*@%%@@@@@@@%@@@@@%%%%
+                   %@%%@@%@@@@@@%%%      %%
+                     =%@@@@@@@@
+                        @@ @@@
+                        %@ @@@
+                       #@  %@
+                       +   +
+                   *#%+@#@#%%
+                   @# % @ % #
+                      @   @ %
+  `));
+
+  console.log(chalk.cyan(`
+   ▄█    █▄    ███    █▄     ▄██████▄   ▄█  ███▄▄▄▄   ▀█████████▄   ▄██████▄      ███
+  ███    ███   ███    ███   ███    ███ ███  ███▀▀▀██▄   ███    ███ ███    ███ ▀█████████▄
+  ███    ███   ███    ███   ███    █▀  ███▌ ███   ███   ███    ███ ███    ███    ▀███▀▀██
+ ▄███▄▄▄▄███▄▄ ███    ███  ▄███        ███▌ ███   ███  ▄███▄▄▄██▀  ███    ███     ███   ▀
+▀▀███▀▀▀▀███▀  ███    ███ ▀▀███ ████▄  ███▌ ███   ███ ▀▀███▀▀▀██▄  ███    ███     ███
+  ███    ███   ███    ███   ███    ███ ███  ███   ███   ███    ██▄ ███    ███     ███
+  ███    ███   ███    ███   ███    ███ ███  ███   ███   ███    ███ ███    ███     ███
+  ███    █▀    ████████▀    ████████▀  █▀    ▀█   █▀  ▄█████████▀   ▀██████▀     ▄████▀
+  `));
+}
+
+/**
  * Initialize CLI with ESM dependencies preloaded
  */
 async function initializeCLI() {
   try {
     // Preload ESM dependencies for better performance
     await loadESMDependencies();
-    
-    // Display ASCII art header
-    // Raven artwork (from JPEG converted to ASCII)
-    console.log(chalk.blue(`
-                 **#%                       
-               #@@@*%@@%                    
-            -@@@@@@@@@@@##%%              %%
-                 #@@@@%*@*%%#%###%##% %#    
-                 +*%%@*@%###@%%%#%###*#+    
-                  #*@%%@@@@@@@%@@@@@%%%%    
-                   %@%%@@%@@@@@@%%%      %% 
-                     =%@@@@@@@@             
-                        @@ @@@              
-                        %@ @@@              
-                       #@  %@               
-                       +   +                
-                   *#%+@#@#%%               
-                   @# % @ % #               
-                      @   @ %                                             
-    `));
 
-    console.log(chalk.cyan(`
-   ▄█    █▄    ███    █▄     ▄██████▄   ▄█  ███▄▄▄▄   ▀█████████▄   ▄██████▄      ███     
-  ███    ███   ███    ███   ███    ███ ███  ███▀▀▀██▄   ███    ███ ███    ███ ▀█████████▄ 
-  ███    ███   ███    ███   ███    █▀  ███▌ ███   ███   ███    ███ ███    ███    ▀███▀▀██ 
- ▄███▄▄▄▄███▄▄ ███    ███  ▄███        ███▌ ███   ███  ▄███▄▄▄██▀  ███    ███     ███   ▀ 
-▀▀███▀▀▀▀███▀  ███    ███ ▀▀███ ████▄  ███▌ ███   ███ ▀▀███▀▀▀██▄  ███    ███     ███     
-  ███    ███   ███    ███   ███    ███ ███  ███   ███   ███    ██▄ ███    ███     ███     
-  ███    ███   ███    ███   ███    ███ ███  ███   ███   ███    ███ ███    ███     ███     
-  ███    █▀    ████████▀    ████████▀  █▀    ▀█   █▀  ▄█████████▀   ▀██████▀     ▄████▀
-    `));
+    // Check if we're running in interactive mode (no command provided)
+    const hasCommand = process.argv.length > 2 && !['interactive'].includes(process.argv[2]);
+
+    // Only show splash screen for interactive mode
+    if (!hasCommand) {
+      displaySplash();
+    }
 
     program
       .version('1.0.0')

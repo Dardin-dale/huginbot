@@ -1,10 +1,10 @@
 #!/bin/bash
 set -e # Exit immediately if a command exits with a non-zero status
 
-# This script switches the active Valheim world based on SSM Parameter Store value
+# This script starts the Valheim server based on SSM Parameter Store configuration
+# Used for normal server starts - does NOT create backups (use switch-valheim-world.sh for world switches)
 
-# Log start of script execution
-echo "$(date '+%Y-%m-%d %H:%M:%S') - Starting world switch operation"
+echo "$(date '+%Y-%m-%d %H:%M:%S') - Starting Valheim server"
 
 # Get AWS region from instance metadata
 REGION=$(curl -s --connect-timeout 5 http://169.254.169.254/latest/meta-data/placement/region)
@@ -20,21 +20,17 @@ if ! docker info > /dev/null 2>&1; then
   exit 1
 fi
 
-# Check if the server is running
+# Check if the server is already running
 if docker ps | grep -q valheim-server; then
-  echo "Stopping Valheim server..."
-  # Stop container with 30s timeout
-  if ! docker stop --time=30 valheim-server; then
-    echo "WARNING: Docker container did not stop gracefully, forcing stop"
-    docker kill valheim-server || true
-  fi
-  
-  # Remove container, but don't fail if it's already gone
+  echo "Valheim server is already running"
+  docker ps | grep valheim-server
+  exit 0
+fi
+
+# Clean up any stopped containers
+if docker ps -a | grep -q valheim-server; then
+  echo "Removing stopped valheim-server container..."
   docker rm valheim-server || true
-  
-  echo "Server container stopped and removed"
-else
-  echo "No running Valheim server found, proceeding with clean start"
 fi
 
 # Get active world from SSM Parameter Store with error handling
@@ -48,6 +44,7 @@ if ! PARAM_RESULT=$($SSM_CMD 2>&1); then
     WORLD_NAME="HuginDefault"
     SERVER_NAME="HuginBot Default World"
     SERVER_PASSWORD="huginbot"
+    OVERRIDES_JSON="{}"
   else
     echo "ERROR: Failed to get parameter from SSM: $PARAM_RESULT"
     exit 1
@@ -55,19 +52,19 @@ if ! PARAM_RESULT=$($SSM_CMD 2>&1); then
 else
   # Parse the parameter value with error handling
   PARAM_VALUE=$(aws ssm get-parameter --name "/huginbot/active-world" --region "$REGION" --query "Parameter.Value" --output text)
-  
+
   # Validate JSON format
   if ! echo "$PARAM_VALUE" | jq . > /dev/null 2>&1; then
     echo "ERROR: Parameter value is not valid JSON: $PARAM_VALUE"
     exit 1
   fi
-  
+
   # Extract values with validation
   WORLD_NAME=$(echo "$PARAM_VALUE" | jq -r '.worldName')
   SERVER_NAME=$(echo "$PARAM_VALUE" | jq -r '.name')
   SERVER_PASSWORD=$(echo "$PARAM_VALUE" | jq -r '.serverPassword')
   ADMIN_IDS=$(echo "$PARAM_VALUE" | jq -r '.adminIds // empty')
-  
+
   # Extract overrides if present
   if echo "$PARAM_VALUE" | jq -e '.overrides' > /dev/null 2>&1; then
     echo "World-specific overrides found, will apply custom settings"
@@ -76,66 +73,37 @@ else
     echo "No world-specific overrides found, using default settings"
     OVERRIDES_JSON="{}"
   fi
-  
+
   # Check if any required values are missing or null
   if [ "$WORLD_NAME" = "null" ] || [ -z "$WORLD_NAME" ]; then
     echo "ERROR: World name is missing or null in the configuration"
     exit 1
   fi
-  
+
   if [ "$SERVER_NAME" = "null" ] || [ -z "$SERVER_NAME" ]; then
     echo "ERROR: Server name is missing or null in the configuration"
     exit 1
   fi
-  
+
   if [ "$SERVER_PASSWORD" = "null" ] || [ -z "$SERVER_PASSWORD" ]; then
     echo "ERROR: Server password is missing or null in the configuration"
     exit 1
   fi
-  
-  # Extract override values with defaults
-  SERVER_ARGS=$(echo "$OVERRIDES_JSON" | jq -r '.SERVER_ARGS // "-crossplay -bepinex"')
-  BEPINEX=$(echo "$OVERRIDES_JSON" | jq -r '.BEPINEX // "true"')
-  SERVER_PUBLIC=$(echo "$OVERRIDES_JSON" | jq -r '.SERVER_PUBLIC // "true"')
-  UPDATE_INTERVAL=$(echo "$OVERRIDES_JSON" | jq -r '.UPDATE_INTERVAL // "900"')
-  
-  # For backward compatibility, also check top-level properties
-  if [ "$SERVER_ARGS" = "null" ]; then
-    SERVER_ARGS=$(echo "$PARAM_VALUE" | jq -r '.serverArgs // "-crossplay -bepinex"')
-    if [ "$SERVER_ARGS" = "null" ]; then 
-      SERVER_ARGS="-crossplay -bepinex"
-    fi
-  fi
-  
-  if [ "$BEPINEX" = "null" ]; then
-    BEPINEX=$(echo "$PARAM_VALUE" | jq -r '.bepInEx // "true"')
-    if [ "$BEPINEX" = "null" ]; then
-      BEPINEX="true"
-    fi
-  fi
-  
-  if [ "$SERVER_PUBLIC" = "null" ]; then
-    SERVER_PUBLIC=$(echo "$PARAM_VALUE" | jq -r '.serverPublic // "true"')
-    if [ "$SERVER_PUBLIC" = "null" ]; then
-      SERVER_PUBLIC="true"
-    fi
-  fi
-  
-  if [ "$UPDATE_INTERVAL" = "null" ]; then
-    UPDATE_INTERVAL=$(echo "$PARAM_VALUE" | jq -r '.updateInterval // "900"')
-    if [ "$UPDATE_INTERVAL" = "null" ]; then
-      UPDATE_INTERVAL="900"
-    fi
-  fi
 fi
 
-echo "Switching to world: $SERVER_NAME ($WORLD_NAME)"
+echo "Starting world: $SERVER_NAME ($WORLD_NAME)"
 
-# Back up the current world
-echo "Creating backup of current world data..."
-if ! /usr/local/bin/backup-valheim.sh; then
-  echo "WARNING: Backup operation failed, but continuing with world switch"
-fi
+# Extract override values with defaults
+SERVER_ARGS=$(echo "$OVERRIDES_JSON" | jq -r '.SERVER_ARGS // "-crossplay"')
+BEPINEX=$(echo "$OVERRIDES_JSON" | jq -r '.BEPINEX // "true"')
+SERVER_PUBLIC=$(echo "$OVERRIDES_JSON" | jq -r '.SERVER_PUBLIC // "true"')
+UPDATE_INTERVAL=$(echo "$OVERRIDES_JSON" | jq -r '.UPDATE_INTERVAL // "900"')
+
+# Handle null values from jq
+[ "$SERVER_ARGS" = "null" ] && SERVER_ARGS="-crossplay"
+[ "$BEPINEX" = "null" ] && BEPINEX="true"
+[ "$SERVER_PUBLIC" = "null" ] && SERVER_PUBLIC="true"
+[ "$UPDATE_INTERVAL" = "null" ] && UPDATE_INTERVAL="900"
 
 # Verify data directories exist
 for dir in "/mnt/valheim-data/config" "/mnt/valheim-data/backups" "/mnt/valheim-data/mods" "/mnt/valheim-data/opt-valheim" "/mnt/valheim-data/config/worlds_local"; do
@@ -146,7 +114,7 @@ for dir in "/mnt/valheim-data/config" "/mnt/valheim-data/backups" "/mnt/valheim-
   fi
 done
 
-# Restore world from S3 backup if needed
+# Restore world from S3 backup if needed (only if world files don't exist)
 echo "Checking if world needs to be restored from backup..."
 if [ -x /usr/local/bin/restore-world.sh ]; then
   if ! /usr/local/bin/restore-world.sh "$WORLD_NAME"; then
@@ -159,8 +127,6 @@ fi
 # ============================================
 # Per-World Mod Management
 # ============================================
-# BepInEx plugins go in /config/bepinex/plugins/
-# The container copies them to /opt/valheim/bepinex/BepInEx/plugins/ on install/update
 BEPINEX_PLUGINS_DIR="/mnt/valheim-data/config/bepinex/plugins"
 
 # Ensure BepInEx directory structure exists
@@ -168,7 +134,7 @@ mkdir -p "$BEPINEX_PLUGINS_DIR"
 mkdir -p /mnt/valheim-data/config/bepinex/patchers
 
 # Clear existing plugins for fresh world-specific mods
-echo "Clearing BepInEx plugins directory for world switch..."
+echo "Clearing BepInEx plugins directory..."
 rm -rf "$BEPINEX_PLUGINS_DIR"/*
 
 # If BepInEx is disabled, we're done with mods section
@@ -219,7 +185,7 @@ chown -R 1000:1000 /mnt/valheim-data/config/bepinex/ 2>/dev/null || true
 DISCORD_SERVER_ID=$(echo "$PARAM_VALUE" | jq -r '.discordServerId' 2>/dev/null || echo "")
 WEBHOOK_PARAM_NAME="/huginbot/discord-webhook/$DISCORD_SERVER_ID"
 
-if [ -n "$DISCORD_SERVER_ID" ]; then
+if [ -n "$DISCORD_SERVER_ID" ] && [ "$DISCORD_SERVER_ID" != "null" ]; then
   echo "Checking for Discord webhook for server ID: $DISCORD_SERVER_ID"
   if WEBHOOK_URL=$(aws ssm get-parameter --name "$WEBHOOK_PARAM_NAME" --with-decryption --region "$REGION" --query "Parameter.Value" --output text 2>/dev/null); then
     echo "Discord webhook found, will configure server with notifications"
@@ -254,9 +220,9 @@ EOF
 if [ "$OVERRIDES_JSON" != "{}" ]; then
   echo -e "\n# Additional Overrides" >> "/mnt/valheim-data/config/server_config.txt"
   OVERRIDE_KEYS=$(echo "$OVERRIDES_JSON" | jq -r 'keys[]')
-  
+
   for KEY in $OVERRIDE_KEYS; do
-    if [[ "$KEY" != "SERVER_ARGS" && "$KEY" != "BEPINEX" && "$KEY" != "SERVER_PUBLIC" && "$KEY" != "UPDATE_INTERVAL" ]]; then
+    if [[ "$KEY" != "SERVER_ARGS" && "$KEY" != "BEPINEX" && "$KEY" != "SERVER_PUBLIC" && "$KEY" != "UPDATE_INTERVAL" && "$KEY" != "MODS" && "$KEY" != "MODIFIERS" ]]; then
       VALUE=$(echo "$OVERRIDES_JSON" | jq -r ".[\"$KEY\"]")
       echo "$KEY: $VALUE" >> "/mnt/valheim-data/config/server_config.txt"
     fi
@@ -272,7 +238,7 @@ echo "Admin IDs: ${ADMIN_IDS:-None configured}"
 
 # Build environment variable for admin IDs if configured
 ADMIN_ENV=""
-if [ -n "$ADMIN_IDS" ]; then
+if [ -n "$ADMIN_IDS" ] && [ "$ADMIN_IDS" != "null" ]; then
   echo "Configuring admin list with IDs: $ADMIN_IDS"
   ADMIN_ENV="-e ADMINLIST_IDS=\"$ADMIN_IDS\""
 fi
@@ -283,11 +249,11 @@ if [ "$OVERRIDES_JSON" != "{}" ]; then
   echo "Applying world-specific overrides:"
   # Extract all keys from the overrides JSON
   OVERRIDE_KEYS=$(echo "$OVERRIDES_JSON" | jq -r 'keys[]')
-  
+
   # Process each override key
   for KEY in $OVERRIDE_KEYS; do
     # Skip the ones we've already handled
-    if [[ "$KEY" != "SERVER_ARGS" && "$KEY" != "BEPINEX" && "$KEY" != "SERVER_PUBLIC" && "$KEY" != "UPDATE_INTERVAL" ]]; then
+    if [[ "$KEY" != "SERVER_ARGS" && "$KEY" != "BEPINEX" && "$KEY" != "SERVER_PUBLIC" && "$KEY" != "UPDATE_INTERVAL" && "$KEY" != "MODS" && "$KEY" != "MODIFIERS" ]]; then
       VALUE=$(echo "$OVERRIDES_JSON" | jq -r ".[\"$KEY\"]")
       echo "  - Setting $KEY=$VALUE"
       OVERRIDE_ENV="$OVERRIDE_ENV -e $KEY=\"$VALUE\" "
@@ -295,8 +261,7 @@ if [ "$OVERRIDES_JSON" != "{}" ]; then
   done
 fi
 
-# Start the server with the new configuration
-# Note: We use eval for the webhook env variable to properly handle quotes
+# Start the server with the configuration
 SERVER_CMD="docker run -d --name valheim-server \
   -p 2456-2458:2456-2458/udp \
   -p 2456-2458:2456-2458/tcp \
@@ -349,5 +314,5 @@ else
 fi
 
 # Record operation success and end time
-echo "$(date '+%Y-%m-%d %H:%M:%S') - World switched successfully to $WORLD_NAME"
+echo "$(date '+%Y-%m-%d %H:%M:%S') - Valheim server started successfully with world: $WORLD_NAME"
 exit 0

@@ -30,8 +30,9 @@ function parseWorldsFromEnv() {
         worldName: process.env[`WORLD_${i}_WORLD_NAME`],
         serverPassword: process.env[`WORLD_${i}_PASSWORD`] || 'valheim',
         discordServerId: process.env[`WORLD_${i}_DISCORD_ID`] || '',
-        adminIds: process.env.VALHEIM_ADMIN_IDS || '',
-        
+        // Per-world admin IDs take precedence over global admin IDs
+        adminIds: process.env[`WORLD_${i}_ADMIN_IDS`] || process.env.VALHEIM_ADMIN_IDS || '',
+
         // Container overrides object to store all custom parameters
         overrides: {}
       };
@@ -39,7 +40,7 @@ function parseWorldsFromEnv() {
       // Find all environment variables that match WORLD_<i>_* pattern
       // and aren't one of the basic properties
       const worldPrefix = `WORLD_${i}_`;
-      const basicProps = ['NAME', 'WORLD_NAME', 'PASSWORD', 'DISCORD_ID'];
+      const basicProps = ['NAME', 'WORLD_NAME', 'PASSWORD', 'DISCORD_ID', 'ADMIN_IDS'];
       
       Object.keys(process.env).forEach(key => {
         if (key.startsWith(worldPrefix)) {

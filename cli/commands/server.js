@@ -15,7 +15,8 @@ const {
   getServerAddress,
   waitForServerReady,
   getAutoShutdownConfig,
-  setAutoShutdownConfig
+  setAutoShutdownConfig,
+  updateScripts
 } = require('../utils/aws');
 
 // Command group registration
@@ -58,6 +59,12 @@ function register(program) {
     .command('get-auto-shutdown')
     .description('Get current auto-shutdown configuration')
     .action(getAutoShutdown);
+
+  server
+    .command('update-scripts')
+    .description('Update scripts on running server from S3')
+    .option('-r, --restart', 'Restart the Valheim server after updating scripts')
+    .action(updateServerScripts);
 
   return server;
 }
@@ -401,6 +408,48 @@ async function setAutoShutdown(value) {
   }
 }
 
+// Update scripts on running server
+async function updateServerScripts(options) {
+  const config = getConfig();
+
+  if (!config.instanceId) {
+    console.log(chalk.yellow('❌ Server not deployed. Deploy it first with:'));
+    console.log(chalk.cyan('  huginbot deploy valheim'));
+    return;
+  }
+
+  const spinner = ora('Checking server status...').start();
+
+  try {
+    const status = await getInstanceStatus();
+
+    if (status !== 'running') {
+      spinner.fail(`Server is not running (status: ${status})`);
+      console.log(chalk.yellow('⚠️  Server must be running to update scripts.'));
+      console.log(chalk.cyan('  Start it with: huginbot server start'));
+      return;
+    }
+
+    spinner.text = 'Updating scripts from S3...';
+    const result = await updateScripts(options.restart);
+    spinner.succeed('Script update command sent');
+
+    console.log(chalk.green(`\n✅ Scripts update initiated`));
+    console.log(chalk.gray(`   Command ID: ${result.commandId}`));
+
+    if (options.restart) {
+      console.log(chalk.yellow('\n⏳ Server is restarting with updated scripts...'));
+      console.log(chalk.gray('   This may take a minute. Players will be disconnected temporarily.'));
+    } else {
+      console.log(chalk.cyan('\n💡 Tip: Use --restart flag to also restart the server:'));
+      console.log(chalk.gray('   huginbot server update-scripts --restart'));
+    }
+  } catch (error) {
+    spinner.fail('Failed to update scripts');
+    console.error(chalk.red('Error:'), error.message);
+  }
+}
+
 module.exports = {
   register,
   startServer,
@@ -409,5 +458,6 @@ module.exports = {
   showServerAddress,
   showServerInfo,
   getAutoShutdown,
-  setAutoShutdown
+  setAutoShutdown,
+  updateServerScripts
 };
