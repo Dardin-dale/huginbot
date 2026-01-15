@@ -39,3 +39,7 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 deploy.log
+
+# Local testing data
+test-data/
+test-mods/

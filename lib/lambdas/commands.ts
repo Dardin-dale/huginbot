@@ -693,9 +693,10 @@ async function handleStatusCommand(): Promise<APIGatewayProxyResult> {
     const { status, message: fastMessage, launchTime } = await getFastServerStatus();
     console.log(`📊 Server status retrieved: ${status}`);
 
-    // Try to get active world and join code from SSM
+    // Try to get active world, join code, and player count from SSM
     let activeWorld: string | undefined;
     let joinCode: string | undefined;
+    let playerCount: number | undefined;
 
     if (status === 'running') {
       try {
@@ -717,6 +718,17 @@ async function handleStatusCommand(): Promise<APIGatewayProxyResult> {
         joinCode = joinCodeResult.Parameter?.Value;
       } catch (err) {
         console.log('No join code found yet - server may still be loading');
+      }
+
+      try {
+        const playerCountResult = await ssmClient.send(new GetParameterCommand({
+          Name: '/huginbot/player-count'
+        }));
+        if (playerCountResult.Parameter?.Value) {
+          playerCount = parseInt(playerCountResult.Parameter.Value, 10);
+        }
+      } catch (err) {
+        console.log('No player count found in SSM');
       }
     }
 
@@ -787,6 +799,15 @@ async function handleStatusCommand(): Promise<APIGatewayProxyResult> {
       });
     }
 
+    // Add player count if available (only when server is ready)
+    if (joinCode && playerCount !== undefined) {
+      fields.push({
+        name: 'Players',
+        value: `👥 ${playerCount}`,
+        inline: true,
+      });
+    }
+
     // Add uptime if running
     if (status === 'running' && launchTime) {
       const uptimeMs = Date.now() - launchTime.getTime();
@@ -818,11 +839,6 @@ async function handleStatusCommand(): Promise<APIGatewayProxyResult> {
       fields.push({
         name: 'Join Code',
         value: `\`${joinCode}\``,
-        inline: false,
-      });
-      fields.push({
-        name: 'How to Join',
-        value: '1. Start game\n2. Join game\n3. Add Server\n4. Enter join code above',
         inline: false,
       });
     }

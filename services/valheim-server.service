@@ -1,0 +1,16 @@
+[Unit]
+Description=Valheim Server Docker Container
+After=docker.service update-valheim-scripts.service
+Requires=docker.service
+Before=playfab-monitor.service player-monitor.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Use start-valheim.sh for normal startup (reads config from SSM, sets up mods)
+ExecStart=/usr/local/bin/start-valheim.sh
+ExecStop=/usr/bin/docker stop valheim-server
+ExecStopPost=/usr/bin/docker rm valheim-server
+
+[Install]
+WantedBy=multi-user.target

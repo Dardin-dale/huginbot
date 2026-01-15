@@ -1,0 +1,13 @@
+[Unit]
+Description=Valheim Player Monitor
+After=docker.service update-valheim-scripts.service
+Requires=update-valheim-scripts.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/monitor-players.sh
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

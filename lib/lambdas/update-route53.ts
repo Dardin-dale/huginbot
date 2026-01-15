@@ -65,20 +65,45 @@ export async function handler(
 }
 
 /**
- * Get the public IP address of an EC2 instance
+ * Sleep for a specified number of milliseconds
  */
-async function getInstancePublicIp(instanceId: string): Promise<string | null> {
-  try {
-    const response = await ec2Client.send(new DescribeInstancesCommand({
-      InstanceIds: [instanceId]
-    }));
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
 
-    const instance = response.Reservations?.[0]?.Instances?.[0];
-    return instance?.PublicIpAddress || null;
-  } catch (error) {
-    console.error('Error getting instance public IP:', error);
-    return null;
+/**
+ * Get the public IP address of an EC2 instance with retry logic.
+ * EC2 may not have a public IP immediately after state changes to "running".
+ */
+async function getInstancePublicIp(instanceId: string, maxRetries = 5, delayMs = 3000): Promise<string | null> {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await ec2Client.send(new DescribeInstancesCommand({
+        InstanceIds: [instanceId]
+      }));
+
+      const instance = response.Reservations?.[0]?.Instances?.[0];
+      const publicIp = instance?.PublicIpAddress;
+
+      if (publicIp) {
+        console.log(`Got public IP on attempt ${attempt}: ${publicIp}`);
+        return publicIp;
+      }
+
+      if (attempt < maxRetries) {
+        console.log(`No public IP yet (attempt ${attempt}/${maxRetries}), waiting ${delayMs}ms...`);
+        await sleep(delayMs);
+      }
+    } catch (error) {
+      console.error(`Error getting instance public IP (attempt ${attempt}):`, error);
+      if (attempt < maxRetries) {
+        await sleep(delayMs);
+      }
+    }
   }
+
+  console.error(`Failed to get public IP after ${maxRetries} attempts`);
+  return null;
 }
 
 /**

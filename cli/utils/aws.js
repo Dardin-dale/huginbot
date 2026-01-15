@@ -1038,7 +1038,9 @@ async function downloadModFiles(bucketName, modName, downloadDir) {
  * @param {boolean} restartServer - Whether to restart the Valheim server after updating scripts
  * @returns {Promise<Object>} Result with command ID and status
  */
-async function updateScripts(restartServer = false) {
+async function updateScripts(options = {}) {
+    const { restartServer = false, includeServices = false } = options;
+
     try {
         const config = getConfig();
         const instanceId = config.instanceId;
@@ -1055,12 +1057,21 @@ async function updateScripts(restartServer = false) {
 
         const ssm = getSSMClient();
 
-        // Build command list
+        // Build command list - uses the update-valheim-scripts.service which does S3 sync
         const commands = [
-            'echo "Updating scripts from S3..."',
+            'echo "Updating scripts and services from S3..."',
             'systemctl restart update-valheim-scripts.service',
-            'echo "Scripts updated successfully"'
+            'echo "Update completed successfully"'
         ];
+
+        // If services were updated, reload systemd
+        if (includeServices) {
+            commands.push(
+                'echo "Reloading systemd..."',
+                'systemctl daemon-reload',
+                'echo "Systemd reloaded"'
+            );
+        }
 
         if (restartServer) {
             commands.push(
@@ -1082,7 +1093,8 @@ async function updateScripts(restartServer = false) {
         return {
             commandId: result.Command.CommandId,
             instanceId: instanceId,
-            restartServer: restartServer
+            restartServer: restartServer,
+            includeServices: includeServices
         };
     } catch (error) {
         console.error('Error updating scripts:', error);

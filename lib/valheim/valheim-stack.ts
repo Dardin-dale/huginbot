@@ -211,6 +211,13 @@ export class ValheimServerAwsCdkStack extends Stack {
             destinationKeyPrefix: "scripts/",
         });
 
+        // Deploy systemd service files to S3 for EC2 instance to download
+        new BucketDeployment(this, "ServiceDeployment", {
+            sources: [Source.asset("./services")],
+            destinationBucket: this.backupBucket,
+            destinationKeyPrefix: "services/",
+        });
+
         // Create IAM role for EC2 instance
         const instanceRole = new Role(this, "valheimInstanceRole", {
             assumedBy: new ServicePrincipal("ec2.amazonaws.com"),
@@ -416,154 +423,51 @@ EOF`,
 
         dockerEnvVars.push(`SERVER_ARGS="${serverArgs.join(' ')}"`);
 
-        // Create a service that updates scripts from S3 on every boot
+        // Write HuginBot config file with bucket name (for scripts to reference)
+        userData.addCommands(
+            `echo "HUGINBOT_BUCKET=${this.backupBucket.bucketName}" > /etc/huginbot.conf`,
+            `echo "AWS_REGION=$(curl -s http://169.254.169.254/latest/meta-data/placement/region)" >> /etc/huginbot.conf`
+        );
+
+        // Bootstrap the update-valheim-scripts service (first boot only)
+        // This service syncs all scripts and service files from S3
         userData.addCommands(
             `cat > /etc/systemd/system/update-valheim-scripts.service << 'EOF'
 [Unit]
-Description=Update Valheim monitoring scripts from S3
+Description=Update Valheim scripts and services from S3
 After=network-online.target
 Wants=network-online.target
-Before=playfab-monitor.service player-monitor.service
+Before=playfab-monitor.service player-monitor.service valheim-server.service
 
 [Service]
 Type=oneshot
-# Wait for IAM credentials to be available from instance metadata service
+# Wait for IAM credentials to be available
 ExecStartPre=/bin/bash -c 'echo "Waiting for IAM credentials..."; until curl -sf --connect-timeout 2 http://169.254.169.254/latest/meta-data/iam/security-credentials/ > /dev/null 2>&1; do echo "IAM credentials not ready, retrying..."; sleep 2; done; echo "IAM credentials available"'
-ExecStart=/bin/bash -c 'aws s3 cp s3://${this.backupBucket.bucketName}/scripts/valheim/monitor-playfab.sh /usr/local/bin/monitor-playfab.sh && chmod +x /usr/local/bin/monitor-playfab.sh && aws s3 cp s3://${this.backupBucket.bucketName}/scripts/valheim/monitor-players.sh /usr/local/bin/monitor-players.sh && chmod +x /usr/local/bin/monitor-players.sh && aws s3 cp s3://${this.backupBucket.bucketName}/scripts/valheim/restore-world.sh /usr/local/bin/restore-world.sh && chmod +x /usr/local/bin/restore-world.sh && aws s3 cp s3://${this.backupBucket.bucketName}/scripts/valheim/backup-valheim.sh /usr/local/bin/backup-valheim.sh && chmod +x /usr/local/bin/backup-valheim.sh && aws s3 cp s3://${this.backupBucket.bucketName}/scripts/valheim/backup-and-stop.sh /usr/local/bin/backup-and-stop.sh && chmod +x /usr/local/bin/backup-and-stop.sh && aws s3 cp s3://${this.backupBucket.bucketName}/scripts/valheim/start-valheim.sh /usr/local/bin/start-valheim.sh && chmod +x /usr/local/bin/start-valheim.sh && aws s3 cp s3://${this.backupBucket.bucketName}/scripts/valheim/switch-valheim-world.sh /usr/local/bin/switch-valheim-world.sh && chmod +x /usr/local/bin/switch-valheim-world.sh'
+# Sync scripts from S3
+ExecStart=/bin/bash -c 'source /etc/huginbot.conf && echo "Syncing scripts from s3://$HUGINBOT_BUCKET/scripts/valheim/..." && aws s3 sync "s3://$HUGINBOT_BUCKET/scripts/valheim/" /usr/local/bin/ --exclude "*" --include "*.sh" && chmod +x /usr/local/bin/*.sh && echo "Scripts synced successfully"'
+# Sync service files from S3 and reload systemd
+ExecStartPost=/bin/bash -c 'source /etc/huginbot.conf && if aws s3 ls "s3://$HUGINBOT_BUCKET/services/" > /dev/null 2>&1; then echo "Syncing service files..." && aws s3 sync "s3://$HUGINBOT_BUCKET/services/" /etc/systemd/system/ --exclude "*" --include "*.service" && systemctl daemon-reload && echo "Service files synced"; else echo "No services directory in S3, skipping"; fi'
 RemainAfterExit=yes
 TimeoutStartSec=300
 
 [Install]
 WantedBy=multi-user.target
 EOF`,
-            "systemctl enable update-valheim-scripts.service"
+            "systemctl daemon-reload",
+            "systemctl enable update-valheim-scripts.service",
+            // Run the update service to download all scripts and service files
+            "systemctl start update-valheim-scripts.service"
         );
 
-        // Note: Scripts are downloaded by update-valheim-scripts.service on every boot
-        // Setup systemd services for monitoring scripts
+        // Enable and start all services (service files were downloaded from S3)
         userData.addCommands(
-            `cat > /etc/systemd/system/playfab-monitor.service << 'EOF'
-[Unit]
-Description=PlayFab Join Code Monitor
-After=docker.service update-valheim-scripts.service
-Requires=update-valheim-scripts.service
-
-[Service]
-Type=simple
-ExecStart=/usr/local/bin/monitor-playfab.sh
-Restart=always
-RestartSec=10
-Environment=GUILD_ID=${props?.worldConfigurations?.[0]?.discordServerId || 'unknown'}
-
-[Install]
-WantedBy=multi-user.target
-EOF`,
-
-            `cat > /etc/systemd/system/player-monitor.service << 'EOF'
-[Unit]
-Description=Valheim Player Monitor
-After=docker.service update-valheim-scripts.service
-Requires=update-valheim-scripts.service
-
-[Service]
-Type=simple
-ExecStart=/usr/local/bin/monitor-players.sh
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-EOF`,
-
             "systemctl daemon-reload",
             "systemctl enable playfab-monitor.service",
-            "systemctl enable player-monitor.service"
-        );
-
-        // Create Valheim server startup script that reads config from SSM
-        userData.addCommands(
-            `cat > /usr/local/bin/start-valheim-server.sh << 'EOF'
-#!/bin/bash
-# Start Valheim server Docker container with configuration from SSM
-
-REGION=$(curl -s http://169.254.169.254/latest/meta-data/placement/region)
-
-# Get active world configuration from SSM
-ACTIVE_WORLD_JSON=$(aws ssm get-parameter --name "/huginbot/active-world" --region "$REGION" --query 'Parameter.Value' --output text 2>/dev/null)
-
-if [ -z "$ACTIVE_WORLD_JSON" ]; then
-  echo "No active world configuration found, using defaults"
-  WORLD_NAME="${worldName}"
-  SERVER_NAME="${serverName}"
-  SERVER_PASS="${serverPassword}"
-else
-  echo "Loading active world configuration from SSM"
-  WORLD_NAME=$(echo "$ACTIVE_WORLD_JSON" | python3 -c "import sys, json; print(json.load(sys.stdin)['worldName'])")
-  SERVER_NAME=$(echo "$ACTIVE_WORLD_JSON" | python3 -c "import sys, json; print(json.load(sys.stdin).get('serverName', 'Valheim Server'))")
-  SERVER_PASS=$(echo "$ACTIVE_WORLD_JSON" | python3 -c "import sys, json; print(json.load(sys.stdin)['serverPassword'])")
-fi
-
-echo "Starting Valheim server with world: $WORLD_NAME"
-
-# Stop and remove existing container if it exists
-docker stop valheim-server 2>/dev/null || true
-docker rm valheim-server 2>/dev/null || true
-
-# Start new container
-docker run -d --name valheim-server \\
-  -p 2456-2458:2456-2458/udp \\
-  -p 2456-2458:2456-2458/tcp \\
-  -p 80:80 \\
-  -v /mnt/valheim-data/config:/config \\
-  -v /mnt/valheim-data/backups:/config/backups \\
-  -v /mnt/valheim-data/server:/opt/valheim \\
-  -e SERVER_NAME="$SERVER_NAME" \\
-  -e WORLD_NAME="$WORLD_NAME" \\
-  -e SERVER_PASS="$SERVER_PASS" \\
-  -e TZ="America/Los_Angeles" \\
-  -e BACKUPS="false" \\
-  -e SERVER_PUBLIC="true" \\
-  -e UPDATE_INTERVAL="900" \\
-  -e STEAMCMD_ARGS="validate" \\
-  -e SERVER_ARGS="-crossplay" \\
-  --restart unless-stopped \\
-  --stop-timeout 120 \\
-  lloesche/valheim-server
-
-echo "Valheim server container started successfully"
-EOF`,
-            "chmod +x /usr/local/bin/start-valheim-server.sh",
-
-            // Create systemd service for Valheim server
-            // Uses start-valheim.sh for normal startup (no backup step)
-            // switch-valheim-world.sh is only used when actually switching worlds (includes backup)
-            // Note: Type=oneshot cannot have Restart= - Docker's --restart handles container restarts
-            `cat > /etc/systemd/system/valheim-server.service << 'EOF'
-[Unit]
-Description=Valheim Server Docker Container
-After=docker.service update-valheim-scripts.service
-Requires=docker.service
-Before=playfab-monitor.service player-monitor.service
-
-[Service]
-Type=oneshot
-RemainAfterExit=yes
-# Use start-valheim.sh for normal startup (reads config from SSM, sets up mods, no backup)
-# switch-valheim-world.sh should only be called when actually switching worlds
-ExecStart=/usr/local/bin/start-valheim.sh
-ExecStop=/usr/bin/docker stop valheim-server
-ExecStopPost=/usr/bin/docker rm valheim-server
-
-[Install]
-WantedBy=multi-user.target
-EOF`,
-            "systemctl daemon-reload",
+            "systemctl enable player-monitor.service",
             "systemctl enable valheim-server.service",
             "systemctl start valheim-server.service",
-
-            // Start/restart the monitoring services to ensure latest scripts are loaded
-            "systemctl restart playfab-monitor.service",
-            "systemctl restart player-monitor.service"
+            "systemctl start playfab-monitor.service",
+            "systemctl start player-monitor.service"
         );
 
         // Create standalone EBS volume for game data

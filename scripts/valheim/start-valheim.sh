@@ -291,7 +291,7 @@ SERVER_CMD="docker run -d --name valheim-server \
   $ADMIN_ENV \
   $OVERRIDE_ENV \
   --restart unless-stopped \
-  lloesche/valheim-server"
+  ghcr.io/community-valheim-tools/valheim-server"
 
 # Run the command and capture the container ID
 if ! CONTAINER_ID=$(eval $SERVER_CMD); then

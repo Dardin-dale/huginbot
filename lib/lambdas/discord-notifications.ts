@@ -157,14 +157,9 @@ async function handleJoinCodeEvent(detail: any): Promise<any> {
         inline: true
       },
       {
-        name: "How to Join",
-        value: `1. Start Valheim\n2. Join Game → Add Server\n3. Enter: \`${customDomain}:2456\`\n4. Enter password (click above to reveal)`,
-        inline: false
-      },
-      {
-        name: "Alternative: Join Code",
-        value: `If direct connect doesn't work, use join code: \`${joinCode}\``,
-        inline: false
+        name: "Join Code",
+        value: `\`${joinCode}\``,
+        inline: true
       }
     );
   } else {
@@ -179,11 +174,6 @@ async function handleJoinCodeEvent(detail: any): Promise<any> {
         name: "Server Password",
         value: `||${serverPassword}||`, // Spoiler tag to hide password
         inline: true
-      },
-      {
-        name: "How to Join",
-        value: "1. Start game\n2. Join game\n3. Add Server\n4. Enter join code above",
-        inline: false
       }
     );
   }

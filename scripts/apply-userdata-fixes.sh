@@ -72,7 +72,7 @@ docker run -d --name valheim-server \
   -e SERVER_ARGS="-crossplay" \
   --restart unless-stopped \
   --stop-timeout 120 \
-  lloesche/valheim-server
+  ghcr.io/community-valheim-tools/valheim-server
 
 echo "Valheim server container started successfully"
 EOF

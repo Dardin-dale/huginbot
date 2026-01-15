@@ -62,8 +62,9 @@ function register(program) {
 
   server
     .command('update-scripts')
-    .description('Update scripts on running server from S3')
-    .option('-r, --restart', 'Restart the Valheim server after updating scripts')
+    .description('Update scripts and services on running server from S3')
+    .option('-r, --restart', 'Restart the Valheim server after updating')
+    .option('-s, --services', 'Also update systemd service files and reload daemon')
     .action(updateServerScripts);
 
   return server;
@@ -430,19 +431,31 @@ async function updateServerScripts(options) {
       return;
     }
 
-    spinner.text = 'Updating scripts from S3...';
-    const result = await updateScripts(options.restart);
-    spinner.succeed('Script update command sent');
+    const updateText = options.services
+      ? 'Updating scripts and services from S3...'
+      : 'Updating scripts from S3...';
+    spinner.text = updateText;
 
-    console.log(chalk.green(`\n✅ Scripts update initiated`));
+    const result = await updateScripts({
+      restartServer: options.restart,
+      includeServices: options.services
+    });
+    spinner.succeed('Update command sent');
+
+    console.log(chalk.green(`\n✅ Update initiated`));
     console.log(chalk.gray(`   Command ID: ${result.commandId}`));
+
+    if (options.services) {
+      console.log(chalk.cyan('   📦 Service files will be synced and systemd reloaded'));
+    }
 
     if (options.restart) {
       console.log(chalk.yellow('\n⏳ Server is restarting with updated scripts...'));
       console.log(chalk.gray('   This may take a minute. Players will be disconnected temporarily.'));
     } else {
-      console.log(chalk.cyan('\n💡 Tip: Use --restart flag to also restart the server:'));
-      console.log(chalk.gray('   huginbot server update-scripts --restart'));
+      console.log(chalk.cyan('\n💡 Tips:'));
+      console.log(chalk.gray('   --restart  Restart server after update'));
+      console.log(chalk.gray('   --services Also sync systemd service files'));
     }
   } catch (error) {
     spinner.fail('Failed to update scripts');

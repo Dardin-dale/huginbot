@@ -31,7 +31,7 @@ docker run -d --name valheim-server \
   -v /mnt/valheim-data/server:/opt/valheim \
   -e SERVER_NAME="$SERVER_NAME" -e WORLD_NAME="$WORLD_NAME" -e SERVER_PASS="$SERVER_PASS" \
   -e TZ="America/Los_Angeles" -e BACKUPS="true" -e SERVER_PUBLIC="true" -e SERVER_ARGS="-crossplay" \
-  --restart unless-stopped lloesche/valheim-server
+  --restart unless-stopped ghcr.io/community-valheim-tools/valheim-server
 EOFSCRIPT
 
 chmod +x /usr/local/bin/start-valheim-server.sh

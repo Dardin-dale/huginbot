@@ -1,0 +1,19 @@
+[Unit]
+Description=Update Valheim scripts and services from S3
+After=network-online.target
+Wants=network-online.target
+Before=playfab-monitor.service player-monitor.service valheim-server.service
+
+[Service]
+Type=oneshot
+# Wait for IAM credentials to be available from instance metadata service
+ExecStartPre=/bin/bash -c 'echo "Waiting for IAM credentials..."; until curl -sf --connect-timeout 2 http://169.254.169.254/latest/meta-data/iam/security-credentials/ > /dev/null 2>&1; do echo "IAM credentials not ready, retrying..."; sleep 2; done; echo "IAM credentials available"'
+# Source config and sync scripts from S3
+ExecStart=/bin/bash -c 'source /etc/huginbot.conf && echo "Syncing scripts from s3://$HUGINBOT_BUCKET/scripts/valheim/..." && aws s3 sync "s3://$HUGINBOT_BUCKET/scripts/valheim/" /usr/local/bin/ --exclude "*" --include "*.sh" && chmod +x /usr/local/bin/*.sh && echo "Scripts synced successfully"'
+# Optionally sync service files (only if services/ exists in S3)
+ExecStartPost=/bin/bash -c 'source /etc/huginbot.conf && if aws s3 ls "s3://$HUGINBOT_BUCKET/services/" > /dev/null 2>&1; then echo "Syncing service files..." && aws s3 sync "s3://$HUGINBOT_BUCKET/services/" /etc/systemd/system/ --exclude "*" --include "*.service" && systemctl daemon-reload && echo "Service files synced"; else echo "No services directory in S3, skipping"; fi'
+RemainAfterExit=yes
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target
