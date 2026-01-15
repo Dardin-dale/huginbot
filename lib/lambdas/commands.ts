@@ -498,14 +498,9 @@ async function handleStartCommand(worldName?: string, guildId?: string): Promise
         type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
         data: {
           embeds: [{
-            title: '🚀 Valheim Server Starting',
-            description: 'Server startup initiated successfully!\n\n' +
-                        '**Timeline:**\n' +
-                        '🔄 EC2 instance boots (30-60 seconds)\n' +
-                        '📦 Docker container starts (1-2 minutes)\n' +
-                        '🎮 Valheim server loads (2-3 minutes)\n\n' +
-                        '**You\'ll get a notification here with the join code when the server is ready!**\n\n' +
-                        '💡 Sit back and relax - everything is automatic from here.',
+            title: '🚀 Server Starting',
+            description: 'The server is booting up. This usually takes **3-5 minutes**.\n\n' +
+                        'You\'ll get a notification with the join code when it\'s ready!',
             color: 0x00ff00,
             fields: displayWorldName ? [{
               name: '🌍 World',
@@ -513,7 +508,7 @@ async function handleStartCommand(worldName?: string, guildId?: string): Promise
               inline: true,
             }] : [],
             footer: {
-              text: 'HuginBot • Auto-notifications enabled'
+              text: 'HuginBot'
             },
             timestamp: new Date().toISOString(),
           }]
@@ -768,12 +763,12 @@ async function handleStatusCommand(): Promise<APIGatewayProxyResult> {
     } else if (status === 'running') {
       statusEmoji = '🔄';
       statusText = 'Booting';
-      description = 'EC2 instance is running, Valheim server is loading...\n_This usually takes 2-4 minutes after EC2 starts._';
+      description = 'Server is loading... You\'ll get a notification when it\'s ready.';
       embedColor = 0xffaa00;
     } else if (status === 'pending') {
       statusEmoji = '⏳';
       statusText = 'Starting';
-      description = 'EC2 instance is booting up...';
+      description = 'Server is starting up...';
       embedColor = 0xffaa00;
     } else {
       statusEmoji = '⚠️';

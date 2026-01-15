@@ -10,8 +10,6 @@ const PLAYFAB_JOIN_CODE_PARAM = '/huginbot/playfab-join-code';
 const ACTIVE_WORLD_PARAM = '/huginbot/active-world';
 const DISCORD_WEBHOOK_BASE = '/huginbot/discord-webhook';
 
-// Track last detailed server stop notification to avoid duplicates from EC2 fallback
-let lastDetailedStopNotification = 0;
 
 /**
  * Get Discord webhook URL from SSM Parameter Store
@@ -73,11 +71,12 @@ export async function handler(
       case 'Backup.Completed':
         message = await handleBackupCompletedEvent(event.detail);
         break;
-      case 'Server.Stopped':
-        message = await handleServerStoppedEvent(event.detail);
+      case 'Backup.Complete':
+        // Shutdown backup notification (from backup-and-stop.sh)
+        message = await handleShutdownBackupEvent(event.detail);
         break;
       case 'EC2 Instance State-change Notification':
-        // EC2 instance stopped - fallback notification
+        // EC2 instance stopped - final "server stopped" notification
         if (event.detail.state === 'stopped') {
           message = await handleEC2StoppedEvent(event.detail);
         }
@@ -230,53 +229,22 @@ async function handleBackupCompletedEvent(detail: any): Promise<any> {
   };
 }
 
-async function handleServerStoppedEvent(detail: any): Promise<any> {
-  const { backupCompleted, backupError, reason, playerCount, idleTimeMinutes } = detail;
+async function handleShutdownBackupEvent(detail: any): Promise<any> {
+  const { backupCompleted, backupError } = detail;
 
-  // Record that we sent a detailed notification
-  lastDetailedStopNotification = Date.now();
-
-  let description = '**Shutdown complete**';
   const color = backupCompleted ? 0x2ecc71 : 0xe67e22; // Green if backup ok, orange if not
-
-  const fields: any[] = [];
-
-  if (backupCompleted) {
-    fields.push({
-      name: "💾 Backup",
-      value: "✅ Completed successfully",
-      inline: true
-    });
-  } else if (backupError) {
-    fields.push({
-      name: "💾 Backup",
-      value: `⚠️ ${backupError}`,
-      inline: true
-    });
-  }
-
-  if (reason === 'discord_force_stop') {
-    description = '**Emergency shutdown complete**\n⚠️ Backup was skipped';
-  } else if (reason === 'auto_shutdown') {
-    description = `**Auto-shutdown: Server idle**\n🕒 No players for ${idleTimeMinutes || 'several'} minutes`;
-    fields.push({
-      name: "👥 Final Player Count",
-      value: `${playerCount ?? 0}`,
-      inline: true
-    });
-  }
+  const status = backupCompleted ? "✅ Backup saved" : `⚠️ ${backupError || 'Backup failed'}`;
 
   return {
     username: "HuginBot",
     avatar_url: "https://media.discordapp.net/attachments/1085270430593589338/1446033918343254016/Valheim-Listen-to-Hugin-Raven.jpg",
     embeds: [
       {
-        title: "🛑 Server Stopped",
-        description: description,
+        title: "💾 Shutdown Backup",
+        description: status,
         color: color,
-        fields: fields,
         footer: {
-          text: "HuginBot • Use /start when you want to play again"
+          text: "HuginBot • Server shutting down..."
         },
         timestamp: new Date().toISOString()
       }
@@ -285,16 +253,7 @@ async function handleServerStoppedEvent(detail: any): Promise<any> {
 }
 
 async function handleEC2StoppedEvent(detail: any): Promise<any> {
-  // This is a fallback notification when EC2 stops but we didn't get a script event
-  // This happens during auto-shutdown when the instance stops before the event is sent
-
-  // Skip if we sent a detailed notification recently (within 2 minutes)
-  const timeSinceLastDetailed = Date.now() - lastDetailedStopNotification;
-  if (timeSinceLastDetailed < 120000) {
-    console.log(`Skipping EC2 fallback - detailed notification sent ${timeSinceLastDetailed}ms ago`);
-    return null;
-  }
-
+  // Final notification when EC2 instance actually reaches stopped state
   const time = detail.time ? new Date(detail.time) : new Date();
 
   return {
@@ -303,15 +262,8 @@ async function handleEC2StoppedEvent(detail: any): Promise<any> {
     embeds: [
       {
         title: "🛑 Server Stopped",
-        description: "**Server has shut down**",
-        color: 0x95a5a6, // Gray color for unknown status
-        fields: [
-          {
-            name: "ℹ️ Status",
-            value: "Instance stopped (auto-shutdown or manual stop)",
-            inline: false
-          }
-        ],
+        description: "Server has shut down completely.",
+        color: 0x95a5a6, // Gray
         footer: {
           text: "HuginBot • Use /start when you want to play again"
         },

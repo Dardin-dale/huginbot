@@ -39,21 +39,17 @@ else
   log "⚠️ Backup failed, proceeding with shutdown anyway"
 fi
 
-# Send EventBridge notification for server stop BEFORE stopping instance
-log "Sending stop notification to Discord..."
+# Send EventBridge notification for backup completion
+log "Sending backup notification to Discord..."
 TIMESTAMP_MS=$(date +%s)000
 aws events put-events \
   --entries "[{
     \"Source\": \"valheim.server\",
-    \"DetailType\": \"Server.Stopped\",
-    \"Detail\": \"{\\\"reason\\\":\\\"discord_command\\\", \\\"backupCompleted\\\":${BACKUP_RESULT}, \\\"backupError\\\":\\\"${BACKUP_ERROR}\\\", \\\"timestamp\\\":${TIMESTAMP_MS}, \\\"guildId\\\":\\\"${GUILD_ID}\\\"}\",
+    \"DetailType\": \"Backup.Complete\",
+    \"Detail\": \"{\\\"backupCompleted\\\":${BACKUP_RESULT}, \\\"backupError\\\":\\\"${BACKUP_ERROR}\\\", \\\"timestamp\\\":${TIMESTAMP_MS}, \\\"guildId\\\":\\\"${GUILD_ID}\\\"}\",
     \"EventBusName\": \"default\"
   }]" \
   --region "$REGION" || log "WARNING: Failed to send EventBridge notification"
-
-# Wait a few seconds to ensure EventBridge event is fully sent before shutdown
-log "Waiting for EventBridge notification to be sent..."
-sleep 3
 
 # Stop the instance
 log "Stopping EC2 instance: $INSTANCE_ID"

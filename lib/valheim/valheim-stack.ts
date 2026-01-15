@@ -831,17 +831,17 @@ EOF`,
         });
         backupCompletedRule.addTarget(new LambdaFunction(discordNotificationsFunction));
 
-        // Create EventBridge rule for server stop events (from scripts)
-        const serverStoppedRule = new Rule(this, 'ServerStoppedEventRule', {
+        // Create EventBridge rule for shutdown backup events (from backup-and-stop.sh)
+        const shutdownBackupRule = new Rule(this, 'ShutdownBackupEventRule', {
             eventPattern: {
                 source: ['valheim.server'],
-                detailType: ['Server.Stopped']
+                detailType: ['Backup.Complete']
             },
-            description: 'Trigger Discord notification when server stops'
+            description: 'Trigger Discord notification when shutdown backup completes'
         });
-        serverStoppedRule.addTarget(new LambdaFunction(discordNotificationsFunction));
+        shutdownBackupRule.addTarget(new LambdaFunction(discordNotificationsFunction));
 
-        // Create EventBridge rule for EC2 instance state changes (external observer)
+        // Create EventBridge rule for EC2 instance state changes (final stopped notification)
         const ec2StateChangeRule = new Rule(this, 'EC2StateChangeRule', {
             eventPattern: {
                 source: ['aws.ec2'],
@@ -851,7 +851,7 @@ EOF`,
                     'state': ['stopped']
                 }
             },
-            description: 'Trigger notification when EC2 instance stops (fallback)'
+            description: 'Trigger notification when EC2 instance stops'
         });
         ec2StateChangeRule.addTarget(new LambdaFunction(discordNotificationsFunction));
 
