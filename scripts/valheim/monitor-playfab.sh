@@ -19,6 +19,22 @@ else
   echo "$LOG_PREFIX Using fallback guild ID: $GUILD_ID"
 fi
 
+# Initialize LAST_JOIN_CODE from existing docker logs to prevent false notifications
+# This prevents sending notifications for old join codes from previous sessions
+echo "$LOG_PREFIX Checking for existing join codes in docker logs..."
+if docker ps | grep -q valheim-server; then
+  EXISTING_LOGS=$(docker logs --tail 500 valheim-server 2>&1)
+  EXISTING_CODE=$(echo "$EXISTING_LOGS" | grep -iE "(with|has|that has) join code" | tail -1 | grep -oE 'join code [0-9]{6}' | grep -oE '[0-9]{6}')
+  if [ -n "$EXISTING_CODE" ]; then
+    LAST_JOIN_CODE="$EXISTING_CODE"
+    echo "$LOG_PREFIX Initialized with existing join code: $EXISTING_CODE (will not re-notify)"
+  else
+    echo "$LOG_PREFIX No existing join code found in logs"
+  fi
+else
+  echo "$LOG_PREFIX Container not running yet, starting with empty join code"
+fi
+
 while true; do
   # Look for join code in logs from server session or player joined messages
   # Try multiple patterns to catch different log formats

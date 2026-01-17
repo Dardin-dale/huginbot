@@ -37,19 +37,19 @@ else
   BACKUP_RESULT=0
   BACKUP_ERROR="Backup script failed"
   log "⚠️ Backup failed, proceeding with shutdown anyway"
-fi
 
-# Send EventBridge notification for backup completion
-log "Sending backup notification to Discord..."
-TIMESTAMP_MS=$(date +%s)000
-aws events put-events \
-  --entries "[{
-    \"Source\": \"valheim.server\",
-    \"DetailType\": \"Backup.Complete\",
-    \"Detail\": \"{\\\"backupCompleted\\\":${BACKUP_RESULT}, \\\"backupError\\\":\\\"${BACKUP_ERROR}\\\", \\\"timestamp\\\":${TIMESTAMP_MS}, \\\"guildId\\\":\\\"${GUILD_ID}\\\"}\",
-    \"EventBusName\": \"default\"
-  }]" \
-  --region "$REGION" || log "WARNING: Failed to send EventBridge notification"
+  # Only send notification on failure (backup-valheim.sh sends its own success notification)
+  log "Sending backup failure notification to Discord..."
+  TIMESTAMP_MS=$(date +%s)000
+  aws events put-events \
+    --entries "[{
+      \"Source\": \"valheim.server\",
+      \"DetailType\": \"Backup.Complete\",
+      \"Detail\": \"{\\\"backupCompleted\\\":${BACKUP_RESULT}, \\\"backupError\\\":\\\"${BACKUP_ERROR}\\\", \\\"timestamp\\\":${TIMESTAMP_MS}, \\\"guildId\\\":\\\"${GUILD_ID}\\\"}\",
+      \"EventBusName\": \"default\"
+    }]" \
+    --region "$REGION" || log "WARNING: Failed to send EventBridge notification"
+fi
 
 # Stop the instance
 log "Stopping EC2 instance: $INSTANCE_ID"
