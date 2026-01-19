@@ -1,8 +1,10 @@
 module.exports = {
   testEnvironment: 'node',
   roots: ['<rootDir>/test'],
-  testMatch: ['**/*.test.ts', '**/*.test.js'],
+  testMatch: ['**/*.test.ts'],
+  modulePathIgnorePatterns: ['<rootDir>/test/.*\\.js$'],
   transform: {
     '^.+\\.tsx?$': 'ts-jest'
-  }
+  },
+  setupFilesAfterEnv: ['<rootDir>/test/setup.ts'],
 };

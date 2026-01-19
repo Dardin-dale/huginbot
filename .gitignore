@@ -43,3 +43,8 @@ deploy.log
 # Local testing data
 test-data/
 test-mods/
+docker-compose.local.yml
+scripts/local-test.sh
+
+# Test coverage output
+coverage/

@@ -1,0 +1,2160 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`ValheimServerAwsCdkStack Snapshot Tests stack matches snapshot 1`] = `
+{
+  "Outputs": {
+    "ApiEndpoint": {
+      "Description": "API Endpoint for Discord bot integration",
+      "Export": {
+        "Name": "HuginbotApiEndpoint-TestValheimStack",
+      },
+      "Value": {
+        "Fn::Join": [
+          "",
+          [
+            "https://",
+            {
+              "Ref": "HuginbotApi9DEF5016",
+            },
+            ".execute-api.us-west-2.",
+            {
+              "Ref": "AWS::URLSuffix",
+            },
+            "/",
+            {
+              "Ref": "HuginbotApiDeploymentStageprod078EA71C",
+            },
+            "/",
+          ],
+        ],
+      },
+    },
+    "AuthTokenOutput": {
+      "Description": "Auth token for Discord integration",
+      "Export": {
+        "Name": "HuginbotDiscordAuthToken-TestValheimStack",
+      },
+      "Value": "AUTH_TOKEN_PLACEHOLDER",
+    },
+    "BackupBucketName": {
+      "Description": "S3 bucket for Valheim server backups",
+      "Export": {
+        "Name": "ValheimBackupBucket",
+      },
+      "Value": {
+        "Ref": "valheimBackupBucket4E6239D8",
+      },
+    },
+    "CustomDomain": {
+      "Description": "Custom domain for connecting to Valheim server",
+      "Export": {
+        "Name": "ValheimServerCustomDomain",
+      },
+      "Value": "valheim.gjurdsihop.net:2456",
+    },
+    "HuginbotApiEndpoint69C2C383": {
+      "Value": {
+        "Fn::Join": [
+          "",
+          [
+            "https://",
+            {
+              "Ref": "HuginbotApi9DEF5016",
+            },
+            ".execute-api.us-west-2.",
+            {
+              "Ref": "AWS::URLSuffix",
+            },
+            "/",
+            {
+              "Ref": "HuginbotApiDeploymentStageprod078EA71C",
+            },
+            "/",
+          ],
+        ],
+      },
+    },
+    "InstanceId": {
+      "Description": "ID of the Valheim server EC2 instance",
+      "Export": {
+        "Name": "ValheimServerInstanceId",
+      },
+      "Value": {
+        "Ref": "ValheimServerInstanceV22FB2AE1E",
+      },
+    },
+    "InstancePublicIP": {
+      "Description": "Command to get the Valheim server public IP",
+      "Export": {
+        "Name": "ValheimServerPublicIP",
+      },
+      "Value": {
+        "Fn::Join": [
+          "",
+          [
+            "Get public IP with: aws ec2 describe-instances --instance-ids ",
+            {
+              "Ref": "ValheimServerInstanceV22FB2AE1E",
+            },
+            " --query 'Reservations[0].Instances[0].PublicIpAddress'",
+          ],
+        ],
+      },
+    },
+    "ValheimConnectAddress": {
+      "Description": "Address format to connect to the Valheim server",
+      "Export": {
+        "Name": "ValheimConnectAddress",
+      },
+      "Value": "Use the public IP from above command with port 2456",
+    },
+  },
+  "Parameters": {
+    "BootstrapVersion": {
+      "Default": "/cdk-bootstrap/hnb659fds/version",
+      "Description": "Version of the CDK Bootstrap resources in this environment, automatically retrieved from SSM Parameter Store. [cdk:skip]",
+      "Type": "AWS::SSM::Parameter::Value<String>",
+    },
+    "SsmParameterValueawsserviceamiamazonlinuxlatestamzn2amikernel510hvmx8664gp2C96584B6F00A464EAD1953AFF4B05118Parameter": {
+      "Default": "/aws/service/ami-amazon-linux-latest/amzn2-ami-kernel-5.10-hvm-x86_64-gp2",
+      "Type": "AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>",
+    },
+  },
+  "Resources": {
+    "AutoShutdownParam9A038DDC": {
+      "Properties": {
+        "Description": "Minutes of idle time before auto-shutdown (or 'off' to disable)",
+        "Name": "/huginbot/auto-shutdown-minutes",
+        "Type": "String",
+        "Value": "20",
+      },
+      "Type": "AWS::SSM::Parameter",
+    },
+    "BackupBucketParamA5FB3F9B": {
+      "Properties": {
+        "Description": "S3 bucket name for Valheim backups",
+        "Name": "/huginbot/backup-bucket-name",
+        "Type": "String",
+        "Value": {
+          "Ref": "valheimBackupBucket4E6239D8",
+        },
+      },
+      "Type": "AWS::SSM::Parameter",
+    },
+    "BackupCleanupFunctionD13BC805": {
+      "DependsOn": [
+        "BackupCleanupFunctionServiceRoleDefaultPolicy4F618B3F",
+        "BackupCleanupFunctionServiceRole41EE6A21",
+      ],
+      "Properties": {
+        "Code": {
+          "S3Bucket": "cdk-hnb659fds-assets-123456789012-us-west-2",
+          "S3Key": "c495436803c289a980647a420c72eea8f8711cd01f356f5180a989eefbaf8768.zip",
+        },
+        "Environment": {
+          "Variables": {
+            "BACKUPS_TO_KEEP": "7",
+            "BACKUP_BUCKET_NAME": {
+              "Ref": "valheimBackupBucket4E6239D8",
+            },
+          },
+        },
+        "Handler": "index.handler",
+        "Role": {
+          "Fn::GetAtt": [
+            "BackupCleanupFunctionServiceRole41EE6A21",
+            "Arn",
+          ],
+        },
+        "Runtime": "nodejs18.x",
+        "Timeout": 300,
+      },
+      "Type": "AWS::Lambda::Function",
+    },
+    "BackupCleanupFunctionServiceRole41EE6A21": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com",
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "ManagedPolicyArns": [
+          {
+            "Fn::Join": [
+              "",
+              [
+                "arn:",
+                {
+                  "Ref": "AWS::Partition",
+                },
+                ":iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+              ],
+            ],
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Role",
+    },
+    "BackupCleanupFunctionServiceRoleDefaultPolicy4F618B3F": {
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "s3:GetObject*",
+                "s3:GetBucket*",
+                "s3:List*",
+                "s3:DeleteObject*",
+                "s3:PutObject",
+                "s3:PutObjectLegalHold",
+                "s3:PutObjectRetention",
+                "s3:PutObjectTagging",
+                "s3:PutObjectVersionTagging",
+                "s3:Abort*",
+              ],
+              "Effect": "Allow",
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "valheimBackupBucket4E6239D8",
+                    "Arn",
+                  ],
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::GetAtt": [
+                          "valheimBackupBucket4E6239D8",
+                          "Arn",
+                        ],
+                      },
+                      "/*",
+                    ],
+                  ],
+                },
+              ],
+            },
+            {
+              "Action": [
+                "ssm:GetParameter",
+                "ssm:GetParameters",
+              ],
+              "Effect": "Allow",
+              "Resource": "arn:aws:ssm:us-west-2:123456789012:parameter/huginbot/*",
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "PolicyName": "BackupCleanupFunctionServiceRoleDefaultPolicy4F618B3F",
+        "Roles": [
+          {
+            "Ref": "BackupCleanupFunctionServiceRole41EE6A21",
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Policy",
+    },
+    "BackupCleanupRule0268F695": {
+      "Properties": {
+        "ScheduleExpression": "rate(1 day)",
+        "State": "ENABLED",
+        "Targets": [
+          {
+            "Arn": {
+              "Fn::GetAtt": [
+                "BackupCleanupFunctionD13BC805",
+                "Arn",
+              ],
+            },
+            "Id": "Target0",
+          },
+        ],
+      },
+      "Type": "AWS::Events::Rule",
+    },
+    "BackupCleanupRuleAllowEventRuleTestValheimStackBackupCleanupFunction6509CB27587B000F": {
+      "Properties": {
+        "Action": "lambda:InvokeFunction",
+        "FunctionName": {
+          "Fn::GetAtt": [
+            "BackupCleanupFunctionD13BC805",
+            "Arn",
+          ],
+        },
+        "Principal": "events.amazonaws.com",
+        "SourceArn": {
+          "Fn::GetAtt": [
+            "BackupCleanupRule0268F695",
+            "Arn",
+          ],
+        },
+      },
+      "Type": "AWS::Lambda::Permission",
+    },
+    "BackupCompletedEventRule40817F8B": {
+      "Properties": {
+        "Description": "Trigger Discord notification when backup completes",
+        "EventPattern": {
+          "detail-type": [
+            "Backup.Completed",
+          ],
+          "source": [
+            "valheim.server",
+          ],
+        },
+        "State": "ENABLED",
+        "Targets": [
+          {
+            "Arn": {
+              "Fn::GetAtt": [
+                "DiscordNotificationsFunction998D7175",
+                "Arn",
+              ],
+            },
+            "Id": "Target0",
+          },
+        ],
+      },
+      "Type": "AWS::Events::Rule",
+    },
+    "BackupCompletedEventRuleAllowEventRuleTestValheimStackDiscordNotificationsFunctionE5C106886C3BB512": {
+      "Properties": {
+        "Action": "lambda:InvokeFunction",
+        "FunctionName": {
+          "Fn::GetAtt": [
+            "DiscordNotificationsFunction998D7175",
+            "Arn",
+          ],
+        },
+        "Principal": "events.amazonaws.com",
+        "SourceArn": {
+          "Fn::GetAtt": [
+            "BackupCompletedEventRule40817F8B",
+            "Arn",
+          ],
+        },
+      },
+      "Type": "AWS::Lambda::Permission",
+    },
+    "CommandsFunction05D33041": {
+      "DependsOn": [
+        "CommandsFunctionServiceRoleDefaultPolicy9BCB142C",
+        "CommandsFunctionServiceRoleE7101515",
+      ],
+      "Properties": {
+        "Code": {
+          "S3Bucket": "cdk-hnb659fds-assets-123456789012-us-west-2",
+          "S3Key": "e38d2252700a7d5dbd8af26dd45a77899ff8346478a3cee5ce22f3cc55f43fde.zip",
+        },
+        "Environment": {
+          "Variables": {
+            "BACKUP_BUCKET_NAME": {
+              "Ref": "valheimBackupBucket4E6239D8",
+            },
+            "DISCORD_AUTH_TOKEN": "AUTH_TOKEN_PLACEHOLDER",
+            "DISCORD_BOT_PUBLIC_KEY": "test-public-key",
+            "DISCORD_BOT_TOKEN": "test-secret-token",
+            "VALHEIM_INSTANCE_ID": {
+              "Ref": "ValheimServerInstanceV22FB2AE1E",
+            },
+            "WORLD_1_ADMIN_IDS": "12345678901234567",
+            "WORLD_1_DISCORD_ID": "111111111111111111",
+            "WORLD_1_NAME": "TestWorld1",
+            "WORLD_1_PASSWORD": "test-password-1",
+            "WORLD_1_WORLD_NAME": "TestWorld1",
+            "WORLD_2_ADMIN_IDS": "12345678901234567",
+            "WORLD_2_BEPINEX": "true",
+            "WORLD_2_DISCORD_ID": "222222222222222222",
+            "WORLD_2_MODIFIERS": "{"resources":"more"}",
+            "WORLD_2_NAME": "TestWorld2",
+            "WORLD_2_PASSWORD": "test-password-2",
+            "WORLD_2_SERVER_ARGS": "-crossplay -modifier resources more",
+            "WORLD_2_WORLD_NAME": "TestWorld2",
+            "WORLD_COUNT": "2",
+          },
+        },
+        "Handler": "index.handler",
+        "MemorySize": 512,
+        "Role": {
+          "Fn::GetAtt": [
+            "CommandsFunctionServiceRoleE7101515",
+            "Arn",
+          ],
+        },
+        "Runtime": "nodejs18.x",
+        "Timeout": 900,
+      },
+      "Type": "AWS::Lambda::Function",
+    },
+    "CommandsFunctionLogGroup76F77837": {
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "LogGroupName": {
+          "Fn::Join": [
+            "",
+            [
+              "/aws/lambda/",
+              {
+                "Ref": "CommandsFunction05D33041",
+              },
+            ],
+          ],
+        },
+        "RetentionInDays": 1,
+      },
+      "Type": "AWS::Logs::LogGroup",
+      "UpdateReplacePolicy": "Retain",
+    },
+    "CommandsFunctionServiceRoleDefaultPolicy9BCB142C": {
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": "ec2:DescribeInstances",
+              "Effect": "Allow",
+              "Resource": "*",
+            },
+            {
+              "Action": [
+                "ec2:StartInstances",
+                "ec2:StopInstances",
+              ],
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::Join": [
+                  "",
+                  [
+                    "arn:aws:ec2:us-west-2:123456789012:instance/",
+                    {
+                      "Ref": "ValheimServerInstanceV22FB2AE1E",
+                    },
+                  ],
+                ],
+              },
+            },
+            {
+              "Action": "ssm:SendCommand",
+              "Effect": "Allow",
+              "Resource": [
+                "arn:aws:ssm:us-west-2::document/AWS-RunShellScript",
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "arn:aws:ec2:us-west-2:123456789012:instance/",
+                      {
+                        "Ref": "ValheimServerInstanceV22FB2AE1E",
+                      },
+                    ],
+                  ],
+                },
+              ],
+            },
+            {
+              "Action": "ssm:GetCommandInvocation",
+              "Effect": "Allow",
+              "Resource": "arn:aws:ssm:us-west-2:123456789012:*",
+            },
+            {
+              "Action": [
+                "s3:ListBucket",
+                "s3:GetObject",
+              ],
+              "Effect": "Allow",
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "valheimBackupBucket4E6239D8",
+                    "Arn",
+                  ],
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::GetAtt": [
+                          "valheimBackupBucket4E6239D8",
+                          "Arn",
+                        ],
+                      },
+                      "/worlds/*",
+                    ],
+                  ],
+                },
+              ],
+            },
+            {
+              "Action": "events:PutEvents",
+              "Effect": "Allow",
+              "Resource": "arn:aws:events:us-west-2:123456789012:event-bus/default",
+            },
+            {
+              "Action": [
+                "ssm:GetParameter",
+                "ssm:GetParameters",
+                "ssm:PutParameter",
+                "ssm:DeleteParameter",
+                "ssm:AddTagsToResource",
+              ],
+              "Effect": "Allow",
+              "Resource": "arn:aws:ssm:us-west-2:123456789012:parameter/huginbot/*",
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "PolicyName": "CommandsFunctionServiceRoleDefaultPolicy9BCB142C",
+        "Roles": [
+          {
+            "Ref": "CommandsFunctionServiceRoleE7101515",
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Policy",
+    },
+    "CommandsFunctionServiceRoleE7101515": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com",
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "ManagedPolicyArns": [
+          {
+            "Fn::Join": [
+              "",
+              [
+                "arn:",
+                {
+                  "Ref": "AWS::Partition",
+                },
+                ":iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+              ],
+            ],
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Role",
+    },
+    "CustomCDKBucketDeployment8693BB64968944B69AAFB0CC9EB8756C81C01536": {
+      "DependsOn": [
+        "CustomCDKBucketDeployment8693BB64968944B69AAFB0CC9EB8756CServiceRoleDefaultPolicy88902FDF",
+        "CustomCDKBucketDeployment8693BB64968944B69AAFB0CC9EB8756CServiceRole89A01265",
+      ],
+      "Properties": {
+        "Code": {
+          "S3Bucket": "cdk-hnb659fds-assets-123456789012-us-west-2",
+          "S3Key": "9a1fcb4a7ecba81ad70e9d3fb241f6794497da945dae5f25924e4dd002b65f2d.zip",
+        },
+        "Environment": {
+          "Variables": {
+            "AWS_CA_BUNDLE": "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",
+          },
+        },
+        "Handler": "index.handler",
+        "Layers": [
+          {
+            "Ref": "ScriptDeploymentAwsCliLayer5EBD8C56",
+          },
+        ],
+        "Role": {
+          "Fn::GetAtt": [
+            "CustomCDKBucketDeployment8693BB64968944B69AAFB0CC9EB8756CServiceRole89A01265",
+            "Arn",
+          ],
+        },
+        "Runtime": "python3.11",
+        "Timeout": 900,
+      },
+      "Type": "AWS::Lambda::Function",
+    },
+    "CustomCDKBucketDeployment8693BB64968944B69AAFB0CC9EB8756CServiceRole89A01265": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com",
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "ManagedPolicyArns": [
+          {
+            "Fn::Join": [
+              "",
+              [
+                "arn:",
+                {
+                  "Ref": "AWS::Partition",
+                },
+                ":iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+              ],
+            ],
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Role",
+    },
+    "CustomCDKBucketDeployment8693BB64968944B69AAFB0CC9EB8756CServiceRoleDefaultPolicy88902FDF": {
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "s3:GetObject*",
+                "s3:GetBucket*",
+                "s3:List*",
+              ],
+              "Effect": "Allow",
+              "Resource": [
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "arn:",
+                      {
+                        "Ref": "AWS::Partition",
+                      },
+                      ":s3:::cdk-hnb659fds-assets-123456789012-us-west-2",
+                    ],
+                  ],
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      "arn:",
+                      {
+                        "Ref": "AWS::Partition",
+                      },
+                      ":s3:::cdk-hnb659fds-assets-123456789012-us-west-2/*",
+                    ],
+                  ],
+                },
+              ],
+            },
+            {
+              "Action": [
+                "s3:GetObject*",
+                "s3:GetBucket*",
+                "s3:List*",
+                "s3:DeleteObject*",
+                "s3:PutObject",
+                "s3:PutObjectLegalHold",
+                "s3:PutObjectRetention",
+                "s3:PutObjectTagging",
+                "s3:PutObjectVersionTagging",
+                "s3:Abort*",
+              ],
+              "Effect": "Allow",
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "valheimBackupBucket4E6239D8",
+                    "Arn",
+                  ],
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::GetAtt": [
+                          "valheimBackupBucket4E6239D8",
+                          "Arn",
+                        ],
+                      },
+                      "/*",
+                    ],
+                  ],
+                },
+              ],
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "PolicyName": "CustomCDKBucketDeployment8693BB64968944B69AAFB0CC9EB8756CServiceRoleDefaultPolicy88902FDF",
+        "Roles": [
+          {
+            "Ref": "CustomCDKBucketDeployment8693BB64968944B69AAFB0CC9EB8756CServiceRole89A01265",
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Policy",
+    },
+    "DiscordAuthToken420405F3": {
+      "Properties": {
+        "Description": "Authentication token for Discord integration",
+        "Name": "/huginbot/discord-auth-token-TestValheimStack",
+        "Type": "String",
+        "Value": "AUTH_TOKEN_PLACEHOLDER",
+      },
+      "Type": "AWS::SSM::Parameter",
+    },
+    "DiscordNotificationsFunction998D7175": {
+      "DependsOn": [
+        "DiscordNotificationsFunctionServiceRoleDefaultPolicyC09E4A59",
+        "DiscordNotificationsFunctionServiceRoleEF3FB7F3",
+      ],
+      "Properties": {
+        "Code": {
+          "S3Bucket": "cdk-hnb659fds-assets-123456789012-us-west-2",
+          "S3Key": "2d8539f054087d396a2c2c290239259218c20be2e5394973bf474f531ef26b3c.zip",
+        },
+        "Environment": {
+          "Variables": {
+            "BACKUP_BUCKET_NAME": {
+              "Ref": "valheimBackupBucket4E6239D8",
+            },
+            "CUSTOM_DOMAIN": "valheim.gjurdsihop.net",
+            "DISCORD_AUTH_TOKEN": "AUTH_TOKEN_PLACEHOLDER",
+            "DISCORD_BOT_PUBLIC_KEY": "test-public-key",
+            "DISCORD_BOT_TOKEN": "test-secret-token",
+            "VALHEIM_INSTANCE_ID": {
+              "Ref": "ValheimServerInstanceV22FB2AE1E",
+            },
+            "WORLD_1_ADMIN_IDS": "12345678901234567",
+            "WORLD_1_DISCORD_ID": "111111111111111111",
+            "WORLD_1_NAME": "TestWorld1",
+            "WORLD_1_PASSWORD": "test-password-1",
+            "WORLD_1_WORLD_NAME": "TestWorld1",
+            "WORLD_2_ADMIN_IDS": "12345678901234567",
+            "WORLD_2_BEPINEX": "true",
+            "WORLD_2_DISCORD_ID": "222222222222222222",
+            "WORLD_2_MODIFIERS": "{"resources":"more"}",
+            "WORLD_2_NAME": "TestWorld2",
+            "WORLD_2_PASSWORD": "test-password-2",
+            "WORLD_2_SERVER_ARGS": "-crossplay -modifier resources more",
+            "WORLD_2_WORLD_NAME": "TestWorld2",
+            "WORLD_COUNT": "2",
+          },
+        },
+        "Handler": "index.handler",
+        "MemorySize": 512,
+        "Role": {
+          "Fn::GetAtt": [
+            "DiscordNotificationsFunctionServiceRoleEF3FB7F3",
+            "Arn",
+          ],
+        },
+        "Runtime": "nodejs18.x",
+        "Timeout": 30,
+      },
+      "Type": "AWS::Lambda::Function",
+    },
+    "DiscordNotificationsFunctionServiceRoleDefaultPolicyC09E4A59": {
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "ssm:GetParameter",
+                "ssm:GetParameters",
+              ],
+              "Effect": "Allow",
+              "Resource": "arn:aws:ssm:us-west-2:123456789012:parameter/huginbot/*",
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "PolicyName": "DiscordNotificationsFunctionServiceRoleDefaultPolicyC09E4A59",
+        "Roles": [
+          {
+            "Ref": "DiscordNotificationsFunctionServiceRoleEF3FB7F3",
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Policy",
+    },
+    "DiscordNotificationsFunctionServiceRoleEF3FB7F3": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com",
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "ManagedPolicyArns": [
+          {
+            "Fn::Join": [
+              "",
+              [
+                "arn:",
+                {
+                  "Ref": "AWS::Partition",
+                },
+                ":iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+              ],
+            ],
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Role",
+    },
+    "EC2StateChangeRuleAllowEventRuleTestValheimStackDiscordNotificationsFunctionE5C1068898977E8E": {
+      "Properties": {
+        "Action": "lambda:InvokeFunction",
+        "FunctionName": {
+          "Fn::GetAtt": [
+            "DiscordNotificationsFunction998D7175",
+            "Arn",
+          ],
+        },
+        "Principal": "events.amazonaws.com",
+        "SourceArn": {
+          "Fn::GetAtt": [
+            "EC2StateChangeRuleD816BE38",
+            "Arn",
+          ],
+        },
+      },
+      "Type": "AWS::Lambda::Permission",
+    },
+    "EC2StateChangeRuleD816BE38": {
+      "Properties": {
+        "Description": "Trigger notification when EC2 instance stops",
+        "EventPattern": {
+          "detail": {
+            "instance-id": [
+              {
+                "Ref": "ValheimServerInstanceV22FB2AE1E",
+              },
+            ],
+            "state": [
+              "stopped",
+            ],
+          },
+          "detail-type": [
+            "EC2 Instance State-change Notification",
+          ],
+          "source": [
+            "aws.ec2",
+          ],
+        },
+        "State": "ENABLED",
+        "Targets": [
+          {
+            "Arn": {
+              "Fn::GetAtt": [
+                "DiscordNotificationsFunction998D7175",
+                "Arn",
+              ],
+            },
+            "Id": "Target0",
+          },
+        ],
+      },
+      "Type": "AWS::Events::Rule",
+    },
+    "HuginbotApi9DEF5016": {
+      "Properties": {
+        "Description": "API for Discord bot to control Valheim server",
+        "EndpointConfiguration": {
+          "Types": [
+            "REGIONAL",
+          ],
+        },
+        "Name": "HuginBot Discord API",
+      },
+      "Type": "AWS::ApiGateway::RestApi",
+    },
+    "HuginbotApiAccount5D967AB5": {
+      "DeletionPolicy": "Retain",
+      "DependsOn": [
+        "HuginbotApi9DEF5016",
+      ],
+      "Properties": {
+        "CloudWatchRoleArn": {
+          "Fn::GetAtt": [
+            "HuginbotApiCloudWatchRoleCDD96269",
+            "Arn",
+          ],
+        },
+      },
+      "Type": "AWS::ApiGateway::Account",
+      "UpdateReplacePolicy": "Retain",
+    },
+    "HuginbotApiCloudWatchRoleCDD96269": {
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "apigateway.amazonaws.com",
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "ManagedPolicyArns": [
+          {
+            "Fn::Join": [
+              "",
+              [
+                "arn:",
+                {
+                  "Ref": "AWS::Partition",
+                },
+                ":iam::aws:policy/service-role/AmazonAPIGatewayPushToCloudWatchLogs",
+              ],
+            ],
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Role",
+      "UpdateReplacePolicy": "Retain",
+    },
+    "HuginbotApiDeploymentD98376E1a7d814d4cb76500e22f128ee2606e1b5": {
+      "DependsOn": [
+        "HuginbotApivalheimcontrolOPTIONSC7457F28",
+        "HuginbotApivalheimcontrolPOSTF0F9ABC6",
+        "HuginbotApivalheimcontrol012B0528",
+        "HuginbotApivalheimCB723936",
+      ],
+      "Properties": {
+        "Description": "API for Discord bot to control Valheim server",
+        "RestApiId": {
+          "Ref": "HuginbotApi9DEF5016",
+        },
+      },
+      "Type": "AWS::ApiGateway::Deployment",
+    },
+    "HuginbotApiDeploymentStageprod078EA71C": {
+      "DependsOn": [
+        "HuginbotApiAccount5D967AB5",
+      ],
+      "Properties": {
+        "DeploymentId": {
+          "Ref": "HuginbotApiDeploymentD98376E1a7d814d4cb76500e22f128ee2606e1b5",
+        },
+        "RestApiId": {
+          "Ref": "HuginbotApi9DEF5016",
+        },
+        "StageName": "prod",
+      },
+      "Type": "AWS::ApiGateway::Stage",
+    },
+    "HuginbotApivalheimCB723936": {
+      "Properties": {
+        "ParentId": {
+          "Fn::GetAtt": [
+            "HuginbotApi9DEF5016",
+            "RootResourceId",
+          ],
+        },
+        "PathPart": "valheim",
+        "RestApiId": {
+          "Ref": "HuginbotApi9DEF5016",
+        },
+      },
+      "Type": "AWS::ApiGateway::Resource",
+    },
+    "HuginbotApivalheimcontrol012B0528": {
+      "Properties": {
+        "ParentId": {
+          "Ref": "HuginbotApivalheimCB723936",
+        },
+        "PathPart": "control",
+        "RestApiId": {
+          "Ref": "HuginbotApi9DEF5016",
+        },
+      },
+      "Type": "AWS::ApiGateway::Resource",
+    },
+    "HuginbotApivalheimcontrolOPTIONSC7457F28": {
+      "Properties": {
+        "ApiKeyRequired": false,
+        "AuthorizationType": "NONE",
+        "HttpMethod": "OPTIONS",
+        "Integration": {
+          "IntegrationResponses": [
+            {
+              "ResponseParameters": {
+                "method.response.header.Access-Control-Allow-Headers": "'Content-Type,X-Signature-Ed25519,X-Signature-Timestamp'",
+                "method.response.header.Access-Control-Allow-Methods": "'POST,OPTIONS'",
+                "method.response.header.Access-Control-Allow-Origin": "'https://discord.com'",
+                "method.response.header.Vary": "'Origin'",
+              },
+              "StatusCode": "204",
+            },
+          ],
+          "RequestTemplates": {
+            "application/json": "{ statusCode: 200 }",
+          },
+          "Type": "MOCK",
+        },
+        "MethodResponses": [
+          {
+            "ResponseParameters": {
+              "method.response.header.Access-Control-Allow-Headers": true,
+              "method.response.header.Access-Control-Allow-Methods": true,
+              "method.response.header.Access-Control-Allow-Origin": true,
+              "method.response.header.Vary": true,
+            },
+            "StatusCode": "204",
+          },
+        ],
+        "ResourceId": {
+          "Ref": "HuginbotApivalheimcontrol012B0528",
+        },
+        "RestApiId": {
+          "Ref": "HuginbotApi9DEF5016",
+        },
+      },
+      "Type": "AWS::ApiGateway::Method",
+    },
+    "HuginbotApivalheimcontrolPOSTApiPermissionTestTestValheimStackHuginbotApi0DE0155DPOSTvalheimcontrol2E1A20DD": {
+      "Properties": {
+        "Action": "lambda:InvokeFunction",
+        "FunctionName": {
+          "Fn::GetAtt": [
+            "CommandsFunction05D33041",
+            "Arn",
+          ],
+        },
+        "Principal": "apigateway.amazonaws.com",
+        "SourceArn": {
+          "Fn::Join": [
+            "",
+            [
+              "arn:",
+              {
+                "Ref": "AWS::Partition",
+              },
+              ":execute-api:us-west-2:123456789012:",
+              {
+                "Ref": "HuginbotApi9DEF5016",
+              },
+              "/test-invoke-stage/POST/valheim/control",
+            ],
+          ],
+        },
+      },
+      "Type": "AWS::Lambda::Permission",
+    },
+    "HuginbotApivalheimcontrolPOSTApiPermissionTestValheimStackHuginbotApi0DE0155DPOSTvalheimcontrol4DF511B7": {
+      "Properties": {
+        "Action": "lambda:InvokeFunction",
+        "FunctionName": {
+          "Fn::GetAtt": [
+            "CommandsFunction05D33041",
+            "Arn",
+          ],
+        },
+        "Principal": "apigateway.amazonaws.com",
+        "SourceArn": {
+          "Fn::Join": [
+            "",
+            [
+              "arn:",
+              {
+                "Ref": "AWS::Partition",
+              },
+              ":execute-api:us-west-2:123456789012:",
+              {
+                "Ref": "HuginbotApi9DEF5016",
+              },
+              "/",
+              {
+                "Ref": "HuginbotApiDeploymentStageprod078EA71C",
+              },
+              "/POST/valheim/control",
+            ],
+          ],
+        },
+      },
+      "Type": "AWS::Lambda::Permission",
+    },
+    "HuginbotApivalheimcontrolPOSTF0F9ABC6": {
+      "Properties": {
+        "AuthorizationType": "NONE",
+        "HttpMethod": "POST",
+        "Integration": {
+          "IntegrationHttpMethod": "POST",
+          "Type": "AWS_PROXY",
+          "Uri": {
+            "Fn::Join": [
+              "",
+              [
+                "arn:",
+                {
+                  "Ref": "AWS::Partition",
+                },
+                ":apigateway:us-west-2:lambda:path/2015-03-31/functions/",
+                {
+                  "Fn::GetAtt": [
+                    "CommandsFunction05D33041",
+                    "Arn",
+                  ],
+                },
+                "/invocations",
+              ],
+            ],
+          },
+        },
+        "ResourceId": {
+          "Ref": "HuginbotApivalheimcontrol012B0528",
+        },
+        "RestApiId": {
+          "Ref": "HuginbotApi9DEF5016",
+        },
+      },
+      "Type": "AWS::ApiGateway::Method",
+    },
+    "JoinCodeEventRule24BDC259": {
+      "Properties": {
+        "Description": "Trigger Discord notification when join code is detected",
+        "EventPattern": {
+          "detail-type": [
+            "PlayFab.JoinCodeDetected",
+          ],
+          "source": [
+            "valheim.server",
+          ],
+        },
+        "State": "ENABLED",
+        "Targets": [
+          {
+            "Arn": {
+              "Fn::GetAtt": [
+                "DiscordNotificationsFunction998D7175",
+                "Arn",
+              ],
+            },
+            "Id": "Target0",
+          },
+        ],
+      },
+      "Type": "AWS::Events::Rule",
+    },
+    "JoinCodeEventRuleAllowEventRuleTestValheimStackDiscordNotificationsFunctionE5C1068853390591": {
+      "Properties": {
+        "Action": "lambda:InvokeFunction",
+        "FunctionName": {
+          "Fn::GetAtt": [
+            "DiscordNotificationsFunction998D7175",
+            "Arn",
+          ],
+        },
+        "Principal": "events.amazonaws.com",
+        "SourceArn": {
+          "Fn::GetAtt": [
+            "JoinCodeEventRule24BDC259",
+            "Arn",
+          ],
+        },
+      },
+      "Type": "AWS::Lambda::Permission",
+    },
+    "Route53UpdateFunction055BACA1": {
+      "DependsOn": [
+        "Route53UpdateFunctionServiceRoleDefaultPolicyB831AB71",
+        "Route53UpdateFunctionServiceRole78440E72",
+      ],
+      "Properties": {
+        "Code": {
+          "S3Bucket": "cdk-hnb659fds-assets-123456789012-us-west-2",
+          "S3Key": "c3abd818c1d15447cfffc123ca1bf1566301fac37379100677ca707db68152b6.zip",
+        },
+        "Environment": {
+          "Variables": {
+            "BACKUP_BUCKET_NAME": {
+              "Ref": "valheimBackupBucket4E6239D8",
+            },
+            "CUSTOM_DOMAIN": "valheim.gjurdsihop.net",
+            "DISCORD_AUTH_TOKEN": "AUTH_TOKEN_PLACEHOLDER",
+            "DISCORD_BOT_PUBLIC_KEY": "test-public-key",
+            "DISCORD_BOT_TOKEN": "test-secret-token",
+            "VALHEIM_INSTANCE_ID": {
+              "Ref": "ValheimServerInstanceV22FB2AE1E",
+            },
+            "WORLD_1_ADMIN_IDS": "12345678901234567",
+            "WORLD_1_DISCORD_ID": "111111111111111111",
+            "WORLD_1_NAME": "TestWorld1",
+            "WORLD_1_PASSWORD": "test-password-1",
+            "WORLD_1_WORLD_NAME": "TestWorld1",
+            "WORLD_2_ADMIN_IDS": "12345678901234567",
+            "WORLD_2_BEPINEX": "true",
+            "WORLD_2_DISCORD_ID": "222222222222222222",
+            "WORLD_2_MODIFIERS": "{"resources":"more"}",
+            "WORLD_2_NAME": "TestWorld2",
+            "WORLD_2_PASSWORD": "test-password-2",
+            "WORLD_2_SERVER_ARGS": "-crossplay -modifier resources more",
+            "WORLD_2_WORLD_NAME": "TestWorld2",
+            "WORLD_COUNT": "2",
+          },
+        },
+        "Handler": "index.handler",
+        "MemorySize": 512,
+        "Role": {
+          "Fn::GetAtt": [
+            "Route53UpdateFunctionServiceRole78440E72",
+            "Arn",
+          ],
+        },
+        "Runtime": "nodejs18.x",
+        "Timeout": 30,
+      },
+      "Type": "AWS::Lambda::Function",
+    },
+    "Route53UpdateFunctionServiceRole78440E72": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com",
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "ManagedPolicyArns": [
+          {
+            "Fn::Join": [
+              "",
+              [
+                "arn:",
+                {
+                  "Ref": "AWS::Partition",
+                },
+                ":iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+              ],
+            ],
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Role",
+    },
+    "Route53UpdateFunctionServiceRoleDefaultPolicyB831AB71": {
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": "ec2:DescribeInstances",
+              "Effect": "Allow",
+              "Resource": "*",
+            },
+            {
+              "Action": [
+                "route53:ListHostedZonesByName",
+                "route53:ChangeResourceRecordSets",
+                "route53:GetChange",
+              ],
+              "Effect": "Allow",
+              "Resource": "*",
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "PolicyName": "Route53UpdateFunctionServiceRoleDefaultPolicyB831AB71",
+        "Roles": [
+          {
+            "Ref": "Route53UpdateFunctionServiceRole78440E72",
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Policy",
+    },
+    "Route53UpdateRule68B4B6F4": {
+      "Properties": {
+        "Description": "Update Route53 DNS when Valheim server starts",
+        "EventPattern": {
+          "detail": {
+            "instance-id": [
+              {
+                "Ref": "ValheimServerInstanceV22FB2AE1E",
+              },
+            ],
+            "state": [
+              "running",
+            ],
+          },
+          "detail-type": [
+            "EC2 Instance State-change Notification",
+          ],
+          "source": [
+            "aws.ec2",
+          ],
+        },
+        "State": "ENABLED",
+        "Targets": [
+          {
+            "Arn": {
+              "Fn::GetAtt": [
+                "Route53UpdateFunction055BACA1",
+                "Arn",
+              ],
+            },
+            "Id": "Target0",
+          },
+        ],
+      },
+      "Type": "AWS::Events::Rule",
+    },
+    "Route53UpdateRuleAllowEventRuleTestValheimStackRoute53UpdateFunctionA3EF0E788386BE57": {
+      "Properties": {
+        "Action": "lambda:InvokeFunction",
+        "FunctionName": {
+          "Fn::GetAtt": [
+            "Route53UpdateFunction055BACA1",
+            "Arn",
+          ],
+        },
+        "Principal": "events.amazonaws.com",
+        "SourceArn": {
+          "Fn::GetAtt": [
+            "Route53UpdateRule68B4B6F4",
+            "Arn",
+          ],
+        },
+      },
+      "Type": "AWS::Lambda::Permission",
+    },
+    "ScriptDeploymentAwsCliLayer5EBD8C56": {
+      "Properties": {
+        "Content": {
+          "S3Bucket": "cdk-hnb659fds-assets-123456789012-us-west-2",
+          "S3Key": "b8ab94266984268614c3fb2824a1c3a55395746c48b28c003b08bc1d08688f3e.zip",
+        },
+        "Description": "/opt/awscli/aws",
+      },
+      "Type": "AWS::Lambda::LayerVersion",
+    },
+    "ScriptDeploymentCustomResource757ECD02": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "DestinationBucketKeyPrefix": "scripts/",
+        "DestinationBucketName": {
+          "Ref": "valheimBackupBucket4E6239D8",
+        },
+        "OutputObjectKeys": true,
+        "Prune": true,
+        "ServiceToken": {
+          "Fn::GetAtt": [
+            "CustomCDKBucketDeployment8693BB64968944B69AAFB0CC9EB8756C81C01536",
+            "Arn",
+          ],
+        },
+        "SourceBucketNames": [
+          "cdk-hnb659fds-assets-123456789012-us-west-2",
+        ],
+        "SourceObjectKeys": [
+          "dce10858d9af17e1d49712ffbc21759a11374609554f8588ac9baaccf5587cf2.zip",
+        ],
+      },
+      "Type": "Custom::CDKBucketDeployment",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "ServiceDeploymentAwsCliLayer19917738": {
+      "Properties": {
+        "Content": {
+          "S3Bucket": "cdk-hnb659fds-assets-123456789012-us-west-2",
+          "S3Key": "b8ab94266984268614c3fb2824a1c3a55395746c48b28c003b08bc1d08688f3e.zip",
+        },
+        "Description": "/opt/awscli/aws",
+      },
+      "Type": "AWS::Lambda::LayerVersion",
+    },
+    "ServiceDeploymentCustomResourceB1425EEE": {
+      "DeletionPolicy": "Delete",
+      "Properties": {
+        "DestinationBucketKeyPrefix": "services/",
+        "DestinationBucketName": {
+          "Ref": "valheimBackupBucket4E6239D8",
+        },
+        "OutputObjectKeys": true,
+        "Prune": true,
+        "ServiceToken": {
+          "Fn::GetAtt": [
+            "CustomCDKBucketDeployment8693BB64968944B69AAFB0CC9EB8756C81C01536",
+            "Arn",
+          ],
+        },
+        "SourceBucketNames": [
+          "cdk-hnb659fds-assets-123456789012-us-west-2",
+        ],
+        "SourceObjectKeys": [
+          "5a9b62ba999fe7348ccbf1774116e50fce56c3b81aa48b8af2045f38999bce1c.zip",
+        ],
+      },
+      "Type": "Custom::CDKBucketDeployment",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "ShutdownBackupEventRuleAllowEventRuleTestValheimStackDiscordNotificationsFunctionE5C1068817AB7541": {
+      "Properties": {
+        "Action": "lambda:InvokeFunction",
+        "FunctionName": {
+          "Fn::GetAtt": [
+            "DiscordNotificationsFunction998D7175",
+            "Arn",
+          ],
+        },
+        "Principal": "events.amazonaws.com",
+        "SourceArn": {
+          "Fn::GetAtt": [
+            "ShutdownBackupEventRuleE6E5053E",
+            "Arn",
+          ],
+        },
+      },
+      "Type": "AWS::Lambda::Permission",
+    },
+    "ShutdownBackupEventRuleE6E5053E": {
+      "Properties": {
+        "Description": "Trigger Discord notification when shutdown backup completes",
+        "EventPattern": {
+          "detail-type": [
+            "Backup.Complete",
+          ],
+          "source": [
+            "valheim.server",
+          ],
+        },
+        "State": "ENABLED",
+        "Targets": [
+          {
+            "Arn": {
+              "Fn::GetAtt": [
+                "DiscordNotificationsFunction998D7175",
+                "Arn",
+              ],
+            },
+            "Id": "Target0",
+          },
+        ],
+      },
+      "Type": "AWS::Events::Rule",
+    },
+    "ValheimDataVolume": {
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "AvailabilityZone": "dummy1a",
+        "Encrypted": true,
+        "Size": 12,
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "ValheimGameData",
+          },
+          {
+            "Key": "Purpose",
+            "Value": "Valheim world data and backups",
+          },
+        ],
+        "VolumeType": "gp3",
+      },
+      "Type": "AWS::EC2::Volume",
+      "UpdateReplacePolicy": "Retain",
+    },
+    "ValheimDataVolumeAttachment": {
+      "Properties": {
+        "Device": "/dev/xvdf",
+        "InstanceId": {
+          "Ref": "ValheimServerInstanceV22FB2AE1E",
+        },
+        "VolumeId": {
+          "Ref": "ValheimDataVolume",
+        },
+      },
+      "Type": "AWS::EC2::VolumeAttachment",
+    },
+    "ValheimServerInstanceV22FB2AE1E": {
+      "DependsOn": [
+        "valheimInstanceRoleDefaultPolicyC3E10389",
+        "valheimInstanceRoleFF4D5F9C",
+        "VolumeDetachResource",
+      ],
+      "Properties": {
+        "AvailabilityZone": "dummy1a",
+        "BlockDeviceMappings": [
+          {
+            "DeviceName": "/dev/xvda",
+            "Ebs": {
+              "Encrypted": true,
+              "VolumeSize": 10,
+              "VolumeType": "gp3",
+            },
+          },
+        ],
+        "IamInstanceProfile": {
+          "Ref": "ValheimServerInstanceV2InstanceProfileEDC41DAA",
+        },
+        "ImageId": {
+          "Ref": "SsmParameterValueawsserviceamiamazonlinuxlatestamzn2amikernel510hvmx8664gp2C96584B6F00A464EAD1953AFF4B05118Parameter",
+        },
+        "InstanceType": "t3.medium",
+        "SecurityGroupIds": [
+          {
+            "Fn::GetAtt": [
+              "valheimSecurityGroup5FE9EC20",
+              "GroupId",
+            ],
+          },
+        ],
+        "SubnetId": {
+          "Ref": "valheimVpcvalheimPublicSubnetSubnet1Subnet18E6AEBF",
+        },
+        "Tags": [
+          {
+            "Key": "DeploymentVersion",
+            "Value": "2025-01-14-v1",
+          },
+          {
+            "Key": "Name",
+            "Value": "TestValheimStack/ValheimServerInstanceV2",
+          },
+        ],
+        "UserData": {
+          "Fn::Base64": {
+            "Fn::Join": [
+              "",
+              [
+                "#!/bin/bash
+yum update -y
+yum install -y docker git amazon-cloudwatch-agent jq
+systemctl enable docker
+systemctl start docker
+echo '{"agent":{"metrics_collection_interval":60,"run_as_user":"root"},"logs":{"logs_collected":{"files":{"collect_list":[{"file_path":"/var/lib/docker/containers/*/*.log","log_group_name":"/valheim/docker/containers","log_stream_name":"{instance_id}/{filename}","timezone":"UTC"}]}}},"metrics":{"metrics_collected":{"mem":{"measurement":["mem_used_percent"]},"disk":{"measurement":["disk_used_percent"],"resources":["/"]}},"append_dimensions":{"InstanceId":"\${!aws:InstanceId}"}}}' > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
+amazon-cloudwatch-agent-ctl -a fetch-config -m ec2 -s -c file:/opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
+echo 'Waiting for data volume to be available...'
+while [ ! -e /dev/nvme1n1 ]; do sleep 1; done
+if ! blkid /dev/nvme1n1; then
+  echo 'Formatting data volume...'
+  mkfs -t ext4 /dev/nvme1n1
+fi
+mkdir -p /mnt/valheim-data
+echo '/dev/nvme1n1 /mnt/valheim-data ext4 defaults 0 2' >> /etc/fstab
+mount -a
+mkdir -p /mnt/valheim-data/config
+mkdir -p /mnt/valheim-data/backups
+mkdir -p /mnt/valheim-data/mods
+chmod -R 755 /mnt/valheim-data
+cat > /usr/local/bin/setup-valheim-mods.sh << 'EOF'
+#!/bin/bash
+# This script sets up the BepInEx plugins directory structure
+# Note: BepInEx creates /config/bepinex/ on first container start
+# We pre-create the plugins directory so mods can be placed there
+
+# Create BepInEx directory structure (container will use this)
+mkdir -p /mnt/valheim-data/config/bepinex/plugins
+mkdir -p /mnt/valheim-data/config/bepinex/patchers
+
+# Mods staging directory (for S3 downloads before copying to bepinex)
+mkdir -p /mnt/valheim-data/mods
+
+echo "BepInEx plugins directory structure created"
+echo "Mods will be downloaded per-world by switch-valheim-world.sh"
+EOF
+chmod +x /usr/local/bin/setup-valheim-mods.sh
+/usr/local/bin/setup-valheim-mods.sh
+yum install -y jq
+echo "HUGINBOT_BUCKET=",
+                {
+                  "Ref": "valheimBackupBucket4E6239D8",
+                },
+                "" > /etc/huginbot.conf
+echo "AWS_REGION=$(curl -s http://169.254.169.254/latest/meta-data/placement/region)" >> /etc/huginbot.conf
+cat > /etc/systemd/system/update-valheim-scripts.service << 'EOF'
+[Unit]
+Description=Update Valheim scripts and services from S3
+After=network-online.target
+Wants=network-online.target
+Before=playfab-monitor.service player-monitor.service valheim-server.service
+
+[Service]
+Type=oneshot
+# Wait for IAM credentials to be available
+ExecStartPre=/bin/bash -c 'echo "Waiting for IAM credentials..."; until curl -sf --connect-timeout 2 http://169.254.169.254/latest/meta-data/iam/security-credentials/ > /dev/null 2>&1; do echo "IAM credentials not ready, retrying..."; sleep 2; done; echo "IAM credentials available"'
+# Sync scripts from S3
+ExecStart=/bin/bash -c 'source /etc/huginbot.conf && echo "Syncing scripts from s3://$HUGINBOT_BUCKET/scripts/valheim/..." && aws s3 sync "s3://$HUGINBOT_BUCKET/scripts/valheim/" /usr/local/bin/ --exclude "*" --include "*.sh" && chmod +x /usr/local/bin/*.sh && echo "Scripts synced successfully"'
+# Sync service files from S3 and reload systemd
+ExecStartPost=/bin/bash -c 'source /etc/huginbot.conf && if aws s3 ls "s3://$HUGINBOT_BUCKET/services/" > /dev/null 2>&1; then echo "Syncing service files..." && aws s3 sync "s3://$HUGINBOT_BUCKET/services/" /etc/systemd/system/ --exclude "*" --include "*.service" && systemctl daemon-reload && echo "Service files synced"; else echo "No services directory in S3, skipping"; fi'
+RemainAfterExit=yes
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload
+systemctl enable update-valheim-scripts.service
+systemctl start update-valheim-scripts.service
+systemctl daemon-reload
+systemctl enable playfab-monitor.service
+systemctl enable player-monitor.service
+systemctl enable valheim-server.service
+systemctl start valheim-server.service
+systemctl start playfab-monitor.service
+systemctl start player-monitor.service",
+              ],
+            ],
+          },
+        },
+      },
+      "Type": "AWS::EC2::Instance",
+    },
+    "ValheimServerInstanceV2InstanceProfileEDC41DAA": {
+      "DependsOn": [
+        "VolumeDetachResource",
+      ],
+      "Properties": {
+        "Roles": [
+          {
+            "Ref": "valheimInstanceRoleFF4D5F9C",
+          },
+        ],
+      },
+      "Type": "AWS::IAM::InstanceProfile",
+    },
+    "VolumeDetachResource": {
+      "DeletionPolicy": "Delete",
+      "DependsOn": [
+        "ValheimDataVolume",
+      ],
+      "Properties": {
+        "DeploymentVersion": "2025-01-14-v1",
+        "ServiceToken": {
+          "Fn::GetAtt": [
+            "VolumeManagerProviderframeworkonEventC62886EC",
+            "Arn",
+          ],
+        },
+        "VolumeId": {
+          "Ref": "ValheimDataVolume",
+        },
+      },
+      "Type": "AWS::CloudFormation::CustomResource",
+      "UpdateReplacePolicy": "Delete",
+    },
+    "VolumeManagerFunction02410038": {
+      "DependsOn": [
+        "VolumeManagerFunctionServiceRoleDefaultPolicy193913CE",
+        "VolumeManagerFunctionServiceRoleE36A4950",
+      ],
+      "Properties": {
+        "Code": {
+          "S3Bucket": "cdk-hnb659fds-assets-123456789012-us-west-2",
+          "S3Key": "ebf4299c9e8b9d4f0c269b8df7c2e95b1d5ed844c281a0a57db76ccb2afbfd0f.zip",
+        },
+        "Description": "Manages EBS volume attachment for EC2 instance replacement",
+        "Handler": "index.handler",
+        "Role": {
+          "Fn::GetAtt": [
+            "VolumeManagerFunctionServiceRoleE36A4950",
+            "Arn",
+          ],
+        },
+        "Runtime": "nodejs18.x",
+        "Timeout": 600,
+      },
+      "Type": "AWS::Lambda::Function",
+    },
+    "VolumeManagerFunctionServiceRoleDefaultPolicy193913CE": {
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "ec2:DescribeVolumes",
+                "ec2:DescribeInstances",
+                "ec2:DetachVolume",
+                "ec2:StopInstances",
+              ],
+              "Effect": "Allow",
+              "Resource": "*",
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "PolicyName": "VolumeManagerFunctionServiceRoleDefaultPolicy193913CE",
+        "Roles": [
+          {
+            "Ref": "VolumeManagerFunctionServiceRoleE36A4950",
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Policy",
+    },
+    "VolumeManagerFunctionServiceRoleE36A4950": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com",
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "ManagedPolicyArns": [
+          {
+            "Fn::Join": [
+              "",
+              [
+                "arn:",
+                {
+                  "Ref": "AWS::Partition",
+                },
+                ":iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+              ],
+            ],
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Role",
+    },
+    "VolumeManagerProviderframeworkonEventC62886EC": {
+      "DependsOn": [
+        "VolumeManagerProviderframeworkonEventServiceRoleDefaultPolicy24D0D78A",
+        "VolumeManagerProviderframeworkonEventServiceRole6782B49F",
+      ],
+      "Properties": {
+        "Code": {
+          "S3Bucket": "cdk-hnb659fds-assets-123456789012-us-west-2",
+          "S3Key": "bdc104ed9cab1b5b6421713c8155f0b753380595356f710400609664d3635eca.zip",
+        },
+        "Description": "AWS CDK resource provider framework - onEvent (TestValheimStack/VolumeManagerProvider)",
+        "Environment": {
+          "Variables": {
+            "USER_ON_EVENT_FUNCTION_ARN": {
+              "Fn::GetAtt": [
+                "VolumeManagerFunction02410038",
+                "Arn",
+              ],
+            },
+          },
+        },
+        "Handler": "framework.onEvent",
+        "Role": {
+          "Fn::GetAtt": [
+            "VolumeManagerProviderframeworkonEventServiceRole6782B49F",
+            "Arn",
+          ],
+        },
+        "Runtime": "nodejs22.x",
+        "Timeout": 900,
+      },
+      "Type": "AWS::Lambda::Function",
+    },
+    "VolumeManagerProviderframeworkonEventServiceRole6782B49F": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com",
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "ManagedPolicyArns": [
+          {
+            "Fn::Join": [
+              "",
+              [
+                "arn:",
+                {
+                  "Ref": "AWS::Partition",
+                },
+                ":iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+              ],
+            ],
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Role",
+    },
+    "VolumeManagerProviderframeworkonEventServiceRoleDefaultPolicy24D0D78A": {
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": "lambda:InvokeFunction",
+              "Effect": "Allow",
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "VolumeManagerFunction02410038",
+                    "Arn",
+                  ],
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::GetAtt": [
+                          "VolumeManagerFunction02410038",
+                          "Arn",
+                        ],
+                      },
+                      ":*",
+                    ],
+                  ],
+                },
+              ],
+            },
+            {
+              "Action": "lambda:GetFunction",
+              "Effect": "Allow",
+              "Resource": {
+                "Fn::GetAtt": [
+                  "VolumeManagerFunction02410038",
+                  "Arn",
+                ],
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "PolicyName": "VolumeManagerProviderframeworkonEventServiceRoleDefaultPolicy24D0D78A",
+        "Roles": [
+          {
+            "Ref": "VolumeManagerProviderframeworkonEventServiceRole6782B49F",
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Policy",
+    },
+    "valheimBackupBucket4E6239D8": {
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "Tags": [
+          {
+            "Key": "aws-cdk:cr-owned:scripts/:68f6a806",
+            "Value": "true",
+          },
+          {
+            "Key": "aws-cdk:cr-owned:services/:5637404e",
+            "Value": "true",
+          },
+        ],
+        "VersioningConfiguration": {
+          "Status": "Enabled",
+        },
+      },
+      "Type": "AWS::S3::Bucket",
+      "UpdateReplacePolicy": "Retain",
+    },
+    "valheimInstanceRoleDefaultPolicyC3E10389": {
+      "Properties": {
+        "PolicyDocument": {
+          "Statement": [
+            {
+              "Action": [
+                "s3:PutObject",
+                "s3:GetObject",
+                "s3:ListBucket",
+              ],
+              "Effect": "Allow",
+              "Resource": [
+                {
+                  "Fn::GetAtt": [
+                    "valheimBackupBucket4E6239D8",
+                    "Arn",
+                  ],
+                },
+                {
+                  "Fn::Join": [
+                    "",
+                    [
+                      {
+                        "Fn::GetAtt": [
+                          "valheimBackupBucket4E6239D8",
+                          "Arn",
+                        ],
+                      },
+                      "/*",
+                    ],
+                  ],
+                },
+              ],
+            },
+            {
+              "Action": "events:PutEvents",
+              "Effect": "Allow",
+              "Resource": "arn:aws:events:us-west-2:123456789012:event-bus/default",
+            },
+            {
+              "Action": [
+                "ssm:GetParameter",
+                "ssm:GetParameters",
+                "ssm:PutParameter",
+              ],
+              "Effect": "Allow",
+              "Resource": "arn:aws:ssm:us-west-2:123456789012:parameter/huginbot/*",
+            },
+            {
+              "Action": "cloudwatch:PutMetricData",
+              "Condition": {
+                "StringEquals": {
+                  "cloudwatch:namespace": "ValheimServer",
+                },
+              },
+              "Effect": "Allow",
+              "Resource": "*",
+            },
+            {
+              "Action": [
+                "ec2:StopInstances",
+                "ec2:DescribeInstances",
+              ],
+              "Condition": {
+                "StringEquals": {
+                  "ec2:ResourceTag/Name": "ValheimStack/ValheimServerInstanceV2",
+                },
+              },
+              "Effect": "Allow",
+              "Resource": "arn:aws:ec2:us-west-2:123456789012:instance/*",
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "PolicyName": "valheimInstanceRoleDefaultPolicyC3E10389",
+        "Roles": [
+          {
+            "Ref": "valheimInstanceRoleFF4D5F9C",
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Policy",
+    },
+    "valheimInstanceRoleFF4D5F9C": {
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Statement": [
+            {
+              "Action": "sts:AssumeRole",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "ec2.amazonaws.com",
+              },
+            },
+          ],
+          "Version": "2012-10-17",
+        },
+        "ManagedPolicyArns": [
+          {
+            "Fn::Join": [
+              "",
+              [
+                "arn:",
+                {
+                  "Ref": "AWS::Partition",
+                },
+                ":iam::aws:policy/AmazonSSMManagedInstanceCore",
+              ],
+            ],
+          },
+        ],
+      },
+      "Type": "AWS::IAM::Role",
+    },
+    "valheimSecurityGroup5FE9EC20": {
+      "Properties": {
+        "GroupDescription": "Security group for Valheim server",
+        "SecurityGroupEgress": [
+          {
+            "CidrIp": "0.0.0.0/0",
+            "Description": "Allow all outbound traffic by default",
+            "IpProtocol": "-1",
+          },
+        ],
+        "SecurityGroupIngress": [
+          {
+            "CidrIp": "0.0.0.0/0",
+            "Description": "Valheim game ports (UDP)",
+            "FromPort": 2456,
+            "IpProtocol": "udp",
+            "ToPort": 2458,
+          },
+          {
+            "CidrIp": "0.0.0.0/0",
+            "Description": "Valheim game ports (TCP)",
+            "FromPort": 2456,
+            "IpProtocol": "tcp",
+            "ToPort": 2458,
+          },
+          {
+            "CidrIp": "0.0.0.0/0",
+            "Description": "Valheim web admin (optional)",
+            "FromPort": 80,
+            "IpProtocol": "tcp",
+            "ToPort": 80,
+          },
+        ],
+        "VpcId": {
+          "Ref": "valheimVpc32DA97E1",
+        },
+      },
+      "Type": "AWS::EC2::SecurityGroup",
+    },
+    "valheimVpc32DA97E1": {
+      "Properties": {
+        "CidrBlock": "10.0.0.0/24",
+        "EnableDnsHostnames": true,
+        "EnableDnsSupport": true,
+        "InstanceTenancy": "default",
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "TestValheimStack/valheimVpc",
+          },
+        ],
+      },
+      "Type": "AWS::EC2::VPC",
+    },
+    "valheimVpcIGWFDDD7AF8": {
+      "Properties": {
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "TestValheimStack/valheimVpc",
+          },
+        ],
+      },
+      "Type": "AWS::EC2::InternetGateway",
+    },
+    "valheimVpcVPCGWADE2BFC3": {
+      "Properties": {
+        "InternetGatewayId": {
+          "Ref": "valheimVpcIGWFDDD7AF8",
+        },
+        "VpcId": {
+          "Ref": "valheimVpc32DA97E1",
+        },
+      },
+      "Type": "AWS::EC2::VPCGatewayAttachment",
+    },
+    "valheimVpcvalheimPublicSubnetSubnet1DefaultRoute542839FB": {
+      "DependsOn": [
+        "valheimVpcVPCGWADE2BFC3",
+      ],
+      "Properties": {
+        "DestinationCidrBlock": "0.0.0.0/0",
+        "GatewayId": {
+          "Ref": "valheimVpcIGWFDDD7AF8",
+        },
+        "RouteTableId": {
+          "Ref": "valheimVpcvalheimPublicSubnetSubnet1RouteTable67BA1154",
+        },
+      },
+      "Type": "AWS::EC2::Route",
+    },
+    "valheimVpcvalheimPublicSubnetSubnet1RouteTable67BA1154": {
+      "Properties": {
+        "Tags": [
+          {
+            "Key": "Name",
+            "Value": "TestValheimStack/valheimVpc/valheimPublicSubnetSubnet1",
+          },
+        ],
+        "VpcId": {
+          "Ref": "valheimVpc32DA97E1",
+        },
+      },
+      "Type": "AWS::EC2::RouteTable",
+    },
+    "valheimVpcvalheimPublicSubnetSubnet1RouteTableAssociation28A84AB8": {
+      "Properties": {
+        "RouteTableId": {
+          "Ref": "valheimVpcvalheimPublicSubnetSubnet1RouteTable67BA1154",
+        },
+        "SubnetId": {
+          "Ref": "valheimVpcvalheimPublicSubnetSubnet1Subnet18E6AEBF",
+        },
+      },
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+    },
+    "valheimVpcvalheimPublicSubnetSubnet1Subnet18E6AEBF": {
+      "Properties": {
+        "AvailabilityZone": "dummy1a",
+        "CidrBlock": "10.0.0.0/24",
+        "MapPublicIpOnLaunch": true,
+        "Tags": [
+          {
+            "Key": "aws-cdk:subnet-name",
+            "Value": "valheimPublicSubnet",
+          },
+          {
+            "Key": "aws-cdk:subnet-type",
+            "Value": "Public",
+          },
+          {
+            "Key": "Name",
+            "Value": "TestValheimStack/valheimVpc/valheimPublicSubnetSubnet1",
+          },
+        ],
+        "VpcId": {
+          "Ref": "valheimVpc32DA97E1",
+        },
+      },
+      "Type": "AWS::EC2::Subnet",
+    },
+  },
+  "Rules": {
+    "CheckBootstrapVersion": {
+      "Assertions": [
+        {
+          "Assert": {
+            "Fn::Not": [
+              {
+                "Fn::Contains": [
+                  [
+                    "1",
+                    "2",
+                    "3",
+                    "4",
+                    "5",
+                  ],
+                  {
+                    "Ref": "BootstrapVersion",
+                  },
+                ],
+              },
+            ],
+          },
+          "AssertDescription": "CDK bootstrap stack version 6 required. Please run 'cdk bootstrap' with a recent version of the CDK CLI.",
+        },
+      ],
+    },
+  },
+}
+`;

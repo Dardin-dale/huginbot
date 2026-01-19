@@ -52,12 +52,26 @@ The project is an aws harness for the https://github.com/lloesche/valheim-server
 
 ## Testing Guidelines
 - Always run tests before committing changes: `npm run test`
-- Make sure Discord authentication tests pass: `npm run test -- test/lambdas/status.test.ts test/lambdas/startstop.test.ts`
+- Run tests with coverage: `npm run test -- --coverage`
+- Key test files:
+  - `test/lambdas/commands.test.ts` - Discord command handlers and auth
+  - `test/lambdas/discord-notifications.test.ts` - EventBridge notification handlers
+  - `test/lambdas/cleanup-backups.test.ts` - S3 backup cleanup logic
+  - `test/cdk/valheim-stack.test.ts` - CDK infrastructure with snapshot tests
 - Use mock implementations for AWS services (never call real AWS services in tests)
-- Make sure all test cases are covered, especially authentication edge cases
-- Test environment variables should be set in the test setup
+- AWS SDK mocking pattern - store mock in global for test access:
+  ```typescript
+  jest.mock('module', () => {
+    const mockFn = jest.fn();
+    (global as any).__mockFn = mockFn;
+    return { client: { send: mockFn } };
+  });
+  const getMock = () => (global as any).__mockFn as jest.Mock;
+  ```
+- For ES module default exports (like axios), use `__esModule: true`
 - Tests should be isolated and not depend on each other
 - Test error handling paths with specific error types
+- CDK tests use snapshot testing - update snapshots with `npm test -- -u` when infrastructure changes intentionally
 
 ## Security Best Practices
 - Follow the principle of least privilege for all IAM roles and policies

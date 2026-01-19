@@ -1,15 +1,14 @@
 import { withRetry } from '../../lib/lambdas/utils/aws-clients';
 
 describe('AWS Client Retry Logic Tests', () => {
-  // Save and restore console.log/error
   const originalConsoleLog = console.log;
   const originalConsoleError = console.error;
-  
+
   beforeEach(() => {
     console.log = jest.fn();
     console.error = jest.fn();
   });
-  
+
   afterEach(() => {
     console.log = originalConsoleLog;
     console.error = originalConsoleError;
@@ -17,82 +16,46 @@ describe('AWS Client Retry Logic Tests', () => {
 
   it('should execute the operation successfully on first try', async () => {
     const mockOperation = jest.fn().mockResolvedValue('success');
-    
+
     const result = await withRetry(mockOperation);
-    
+
     expect(result).toBe('success');
     expect(mockOperation).toHaveBeenCalledTimes(1);
   });
 
   it('should retry the operation when it fails and succeed eventually', async () => {
-    // Fail twice, succeed on third try
     const mockOperation = jest.fn()
       .mockRejectedValueOnce(new Error('Failure 1'))
       .mockRejectedValueOnce(new Error('Failure 2'))
       .mockResolvedValueOnce('success');
-    
-    // Mock setTimeout to execute immediately for faster tests
-    jest.useFakeTimers();
-    const originalSetTimeout = global.setTimeout;
-    global.setTimeout = jest.fn((callback) => {
-      callback();
-      return {} as any;
-    }) as any;
-    
-    const result = await withRetry(mockOperation);
-    
+
+    // Use minimal delay for testing
+    const result = await withRetry(mockOperation, 3, 1);
+
     expect(result).toBe('success');
     expect(mockOperation).toHaveBeenCalledTimes(3);
-    
-    // Restore setTimeout
-    global.setTimeout = originalSetTimeout;
-    jest.useRealTimers();
   });
 
   it('should throw an error after max retries', async () => {
-    // Always fail
     const mockError = new Error('Persistent failure');
     const mockOperation = jest.fn().mockRejectedValue(mockError);
-    
-    // Mock setTimeout to execute immediately
-    jest.useFakeTimers();
-    const originalSetTimeout = global.setTimeout;
-    global.setTimeout = jest.fn((callback) => {
-      callback();
-      return {} as any;
-    }) as any;
-    
-    await expect(withRetry(mockOperation, 3)).rejects.toThrow(mockError);
+
+    // Use minimal delay for testing
+    await expect(withRetry(mockOperation, 3, 1)).rejects.toThrow('Persistent failure');
     expect(mockOperation).toHaveBeenCalledTimes(3);
-    
-    // Restore setTimeout
-    global.setTimeout = originalSetTimeout;
-    jest.useRealTimers();
   });
 
   it('should respect custom maxRetries parameter', async () => {
-    // Always fail
     const mockOperation = jest.fn().mockRejectedValue(new Error('Failure'));
-    
-    // Mock setTimeout to execute immediately
-    jest.useFakeTimers();
-    const originalSetTimeout = global.setTimeout;
-    global.setTimeout = jest.fn((callback) => {
-      callback();
-      return {} as any;
-    }) as any;
-    
+
+    // Use minimal delay for testing
     try {
-      await withRetry(mockOperation, 5);
+      await withRetry(mockOperation, 5, 1);
     } catch (error) {
       // Expected to fail
     }
-    
+
     expect(mockOperation).toHaveBeenCalledTimes(5);
-    
-    // Restore setTimeout
-    global.setTimeout = originalSetTimeout;
-    jest.useRealTimers();
   });
 
   it('should use exponential backoff for delays between retries', async () => {
@@ -100,27 +63,21 @@ describe('AWS Client Retry Logic Tests', () => {
       .mockRejectedValueOnce(new Error('Failure 1'))
       .mockRejectedValueOnce(new Error('Failure 2'))
       .mockResolvedValueOnce('success');
-    
-    const delays: number[] = [];
-    const mockSetTimeout = jest.fn((callback, delay) => {
-      delays.push(delay as number);
-      callback();
-      return {} as any;
-    });
-    
-    // Mock setTimeout to capture delay values
-    jest.useFakeTimers();
-    const originalSetTimeout = global.setTimeout;
-    global.setTimeout = mockSetTimeout as any;
-    
-    await withRetry(mockOperation, 3, 100);
-    
+
+    const setTimeoutSpy = jest.spyOn(global, 'setTimeout');
+
+    // Use 10ms base delay to make test fast but still measurable
+    await withRetry(mockOperation, 3, 10);
+
+    // Extract delay values from setTimeout calls (filter out any internal delays)
+    const delays = setTimeoutSpy.mock.calls
+      .filter(call => typeof call[1] === 'number' && call[1] >= 10)
+      .map(call => call[1]);
+
     expect(delays.length).toBe(2); // Two retries
-    expect(delays[0]).toBe(100);   // First retry: baseDelay * 2^0
-    expect(delays[1]).toBe(200);   // Second retry: baseDelay * 2^1
-    
-    // Restore setTimeout
-    global.setTimeout = originalSetTimeout;
-    jest.useRealTimers();
+    expect(delays[0]).toBe(10);    // First retry: baseDelay * 2^0
+    expect(delays[1]).toBe(20);    // Second retry: baseDelay * 2^1
+
+    setTimeoutSpy.mockRestore();
   });
 });
