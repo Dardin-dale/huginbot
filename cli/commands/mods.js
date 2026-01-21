@@ -8,7 +8,7 @@ const ora = require('ora');
 const chalk = require('chalk');
 const path = require('path');
 const fs = require('fs');
-const boxen = require('boxen');
+const { loadESMDependencies } = require('../utils/esm-loader');
 const { getConfig, getConfigWithStackOutputs, saveConfig } = require('../utils/config');
 const {
   listModsInLibrary,
@@ -468,6 +468,7 @@ async function modInfo(modName) {
     }
 
     // Display mod details
+    const { boxen } = await loadESMDependencies();
     const infoBox = boxen(
       chalk.bold.cyan(`${mod.name}\n`) +
       chalk.gray(`Version: ${mod.version}\n`) +

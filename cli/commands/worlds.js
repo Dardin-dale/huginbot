@@ -7,7 +7,7 @@
 const inquirer = require('inquirer');
 const ora = require('ora');
 const chalk = require('chalk');
-const boxen = require('boxen');
+const { loadESMDependencies } = require('../utils/esm-loader');
 const { getConfig, saveConfig, getWorldConfig, saveWorldConfig, getConfigWithStackOutputs } = require('../utils/config');
 const { 
   getInstanceStatus, 
@@ -193,7 +193,8 @@ async function showCurrentWorld() {
         });
       }
     }
-    
+
+    const { boxen } = await loadESMDependencies();
     console.log(boxen(
       chalk.bold(`🌍 Current Active World: ${chalk.green(currentWorld.name)} 🌍\n\n`) +
       `Valheim World Name: ${chalk.cyan(currentWorld.worldName)}\n` +

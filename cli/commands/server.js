@@ -6,7 +6,7 @@
 const inquirer = require('inquirer');
 const ora = require('ora');
 const chalk = require('chalk');
-const boxen = require('boxen');
+const { loadESMDependencies } = require('../utils/esm-loader');
 const { getConfig } = require('../utils/config');
 const {
   getInstanceStatus,
@@ -109,8 +109,9 @@ async function startServer() {
     await waitForServerReady();
     
     spinner.succeed('Valheim server is ready!');
-    
+
     const address = await getServerAddress();
+    const { boxen } = await loadESMDependencies();
     console.log(boxen(
       chalk.bold(`🎮 Server Started! 🎮\n\n`) +
       `Join Address: ${chalk.green(address)}\n` +
@@ -268,7 +269,8 @@ async function showServerAddress() {
     
     const address = await getServerAddress();
     spinner.succeed('Server is running');
-    
+
+    const { boxen } = await loadESMDependencies();
     console.log(boxen(
       chalk.bold(`🎮 Server Connection Info 🎮\n\n`) +
       `Join Address: ${chalk.green(address)}\n` +
@@ -317,7 +319,8 @@ async function showServerInfo() {
         displayInfo.push(`${chalk.cyan('Online Players:')} ${status.playerCount}`);
       }
     }
-    
+
+    const { boxen } = await loadESMDependencies();
     console.log(boxen(
       chalk.bold(`🖥️  Server Information 🖥️\n\n`) +
       displayInfo.join('\n'),

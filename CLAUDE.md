@@ -154,6 +154,41 @@ The project is an aws harness for the https://github.com/lloesche/valheim-server
 - Robust backup system
 - World management separation (CLI for admin, Discord for selection)
 
+## User Assistance Guide (for Claude Code instances)
+
+When helping users configure HuginBot, here are common tasks:
+
+### Adding a New World
+1. Edit `.env` file directly, or use `npm run cli` → World Management → Add World
+2. Increment `WORLD_COUNT`
+3. Add indexed entries: `WORLD_N_NAME`, `WORLD_N_WORLD_NAME`, `WORLD_N_PASSWORD`, `WORLD_N_DISCORD_ID`
+4. Optional overrides: `WORLD_N_BEPINEX`, `WORLD_N_MODS`, `WORLD_N_SERVER_ARGS`
+
+### Changing Server Settings
+- Edit `WORLD_N_SERVER_ARGS` in `.env` for Valheim modifiers
+- Example: `-crossplay -modifier combat hard -modifier resources more`
+- Presets available: `-preset casual`, `-preset hard`, `-preset hardcore`
+
+### Enabling Mods
+1. Set `WORLD_N_BEPINEX=true`
+2. Import mods: `npm run cli -- mods import <ModName>`
+3. Assign to world: `WORLD_N_MODS=["ModName1","ModName2"]`
+
+### Configuration File Locations
+- `.env` - All world configs, Discord credentials, AWS settings
+- `cli/config.json` - CLI state (auto-managed)
+- SSM Parameter Store - Runtime config in AWS
+
+### Common User Questions
+- **"How do I add a world?"** → Use CLI: `npm run cli` → World Management → Add World
+- **"How do I change difficulty?"** → Edit `WORLD_N_SERVER_ARGS` with `-modifier combat <level>`
+- **"How do I add mods?"** → `npm run cli -- mods import <name>`, then add to `WORLD_N_MODS`
+- **"Server won't start"** → Check `WORLD_N_DISCORD_ID` matches their Discord server ID
+
+### After Configuration Changes
+- Most `.env` changes require redeployment: `npm run deploy`
+- World switches: Use Discord `/worlds switch` or restart server
+
 ## Future Considerations (Huginbot-Pro)
 - Multi-tenant architecture design
 - Per-user EC2 isolation

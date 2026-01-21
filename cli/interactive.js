@@ -6,6 +6,7 @@
 const inquirer = require('inquirer');
 const chalk = require('chalk');
 const { execSync } = require('child_process');
+const { loadESMDependencies } = require('./utils/esm-loader');
 const { getConfig, saveConfig } = require('./utils/config');
 const { 
   startServer, 
@@ -172,9 +173,9 @@ async function deployCdk() {
           // Remove trailing slash if present
           const cleanUrl = apiGatewayUrl.endsWith('/') ? apiGatewayUrl.slice(0, -1) : apiGatewayUrl;
           const discordEndpoint = `${cleanUrl}/valheim/control`;
-          
+
           try {
-            const boxen = require('boxen');
+            const { boxen } = await loadESMDependencies();
             console.log(boxen(
               chalk.bold.blue('🔗 Discord Integration Endpoint:\n\n') +
               chalk.cyan('Set this as your Interactions Endpoint URL in Discord Developer Portal:\n') +
@@ -465,6 +466,7 @@ async function advancedMenu() {
 
   // Handle other advanced actions here
   if (advancedAction === 'aws') {
+    const { boxen } = await loadESMDependencies();
     console.log(boxen(
       chalk.bold('🚧 AWS Region Configuration Coming Soon! 🚧\n\n') +
       'This feature will allow you to:\n' +

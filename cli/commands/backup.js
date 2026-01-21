@@ -8,7 +8,7 @@ const ora = require('ora');
 const chalk = require('chalk');
 const path = require('path');
 const fs = require('fs');
-const boxen = require('boxen');
+const { loadESMDependencies } = require('../utils/esm-loader');
 const { getConfig, getConfigWithStackOutputs, saveConfig } = require('../utils/config');
 const {
   getInstanceStatus,
@@ -426,8 +426,9 @@ async function restoreBackup() {
   }
   
   spinner.succeed('Server is stopped, continuing with restore');
-  
+
   // Display restore instructions
+  const { boxen } = await loadESMDependencies();
   console.log(boxen(
     chalk.bold('🔄 Backup Restore Procedure 🔄\n\n') +
     '1. Download the desired backup:\n' +
