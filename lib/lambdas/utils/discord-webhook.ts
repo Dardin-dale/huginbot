@@ -1,4 +1,3 @@
-import axios from 'axios';
 import { PutParameterCommand } from '@aws-sdk/client-ssm';
 import { ssmClient, SSM_PARAMS, withRetry } from './aws-clients';
 
@@ -49,22 +48,26 @@ export async function validateWebhook(webhookUrl: string): Promise<WebhookValida
     }
     
     // Send a test message to the webhook
-    const response = await axios.post(webhookUrl, {
-      content: 'This is a test message from HuginBot to verify the webhook configuration.',
-      username: 'HuginBot',
-      avatar_url: 'https://static.wikia.nocookie.net/valheim/images/7/7d/Hugin.png',
-      embeds: [{
-        title: 'Webhook Configuration Test',
-        description: 'If you see this message, the webhook is configured correctly. ' +
-          'You will receive server notifications at this channel.',
-        color: 0x3498db, // Blue color
-        footer: {
-          text: 'HuginBot Webhook Validation'
-        },
-        timestamp: new Date().toISOString()
-      }]
+    const response = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        content: 'This is a test message from HuginBot to verify the webhook configuration.',
+        username: 'HuginBot',
+        avatar_url: 'https://static.wikia.nocookie.net/valheim/images/7/7d/Hugin.png',
+        embeds: [{
+          title: 'Webhook Configuration Test',
+          description: 'If you see this message, the webhook is configured correctly. ' +
+            'You will receive server notifications at this channel.',
+          color: 0x3498db, // Blue color
+          footer: {
+            text: 'HuginBot Webhook Validation'
+          },
+          timestamp: new Date().toISOString()
+        }]
+      }),
     });
-    
+
     // Discord returns 204 No Content for successful webhook calls
     if (response.status === 204) {
       return {
@@ -82,28 +85,6 @@ export async function validateWebhook(webhookUrl: string): Promise<WebhookValida
   } catch (error) {
     console.error('Webhook validation error:', error);
     
-    // Check for axios error with response
-    if (error && typeof error === 'object' && 'response' in error) {
-      const status = (error as any).response?.status;
-      let message = `Webhook validation failed with status ${status}`;
-      
-      // Add more specific messages for common error codes
-      if (status === 404) {
-        message = 'Webhook not found. The webhook may have been deleted in Discord.';
-      } else if (status === 401 || status === 403) {
-        message = 'Unauthorized access to webhook. The webhook token may be invalid.';
-      } else if (status >= 500) {
-        message = 'Discord server error. Please try again later.';
-      }
-      
-      return {
-        isValid: false,
-        statusCode: status,
-        message: message
-      };
-    }
-    
-    // Network or other error
     return {
       isValid: false,
       message: (error as any)?.message || 'Unknown error validating webhook'
@@ -177,8 +158,12 @@ export async function sendWebhookMessage(
     }
     
     // Send the message
-    const response = await axios.post(webhookUrl, payload);
-    
+    const response = await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
     // Discord returns 204 No Content for successful webhook calls
     return response.status === 204;
   } catch (error) {

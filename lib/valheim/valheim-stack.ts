@@ -36,7 +36,6 @@ import { StringParameter } from "aws-cdk-lib/aws-ssm";
 import { Construct } from "constructs";
 import * as path from "path";
 import { loadScript } from './script-loader';
-import * as dotenv from 'dotenv';
 import {
     RestApi,
     LambdaIntegration,
@@ -111,9 +110,9 @@ interface ValheimServerAwsCdkStackProps extends StackProps {
     instanceType?: InstanceType;
     /**
      * Size of data volume in GB
-     * Default: 12
+     * Default: 16
      */
-    dataVolumeSize?: number;
+    dataVolumeSize?: number;  // Default: 16
     /**
      * How often to run backups (in hours)
      * Default: 24 (once per day)
@@ -153,7 +152,7 @@ export class ValheimServerAwsCdkStack extends Stack {
         super(scope, id, props);
         
         // Load environment variables from .env file
-        dotenv.config();
+        process.loadEnvFile();
 
         if (props?.worldBootstrapLocation && !props.worldResourcesBucket) {
             Annotations.of(this).addError("worldResourcesBucket must be set if worldBootstrapLocation is set!");
@@ -164,7 +163,7 @@ export class ValheimServerAwsCdkStack extends Stack {
         const serverName = props?.serverName || "ValheimServer";
         const worldName = props?.worldName || "ValheimWorld";
         const instanceType = props?.instanceType || InstanceType.of(InstanceClass.T3, InstanceSize.MEDIUM);
-        const dataVolumeSize = props?.dataVolumeSize || 12;
+        const dataVolumeSize = props?.dataVolumeSize || 16;
         const backupFrequencyHours = props?.backupFrequencyHours || 24;
         const backupsToKeep = props?.backupsToKeep || 7;
         const modsDirectory = props?.modsDirectory || "./mods";
@@ -347,6 +346,9 @@ export class ValheimServerAwsCdkStack extends Stack {
             "mkdir -p /mnt/valheim-data",
             "echo '/dev/nvme1n1 /mnt/valheim-data ext4 defaults 0 2' >> /etc/fstab",
             "mount -a",
+
+            // Expand filesystem to fill volume if it was resized
+            "resize2fs /dev/nvme1n1",
 
             // Create directories
             "mkdir -p /mnt/valheim-data/config",

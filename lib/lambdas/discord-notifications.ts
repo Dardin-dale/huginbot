@@ -1,6 +1,5 @@
 import { EventBridgeEvent, Context } from 'aws-lambda';
 import { SSMClient, GetParameterCommand } from '@aws-sdk/client-ssm';
-import axios from 'axios';
 
 // Create AWS clients
 const ssmClient = new SSMClient();
@@ -94,7 +93,14 @@ export async function handler(
     // Get webhook URL from SSM and send notification
     try {
       const webhookUrl = await getWebhookUrl();
-      await axios.post(webhookUrl, message);
+      const response = await fetch(webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(message),
+      });
+      if (!response.ok) {
+        throw new Error(`Discord webhook returned ${response.status}`);
+      }
       console.log(`Discord notification sent successfully for ${eventType}`);
     } catch (error) {
       console.error('Failed to send Discord notification:', error);

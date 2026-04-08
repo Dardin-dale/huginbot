@@ -8,7 +8,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const Conf = require('conf');
-require('dotenv').config(); // Load environment variables from .env
+process.loadEnvFile(); // Load environment variables from .env
 
 // Create config directory if it doesn't exist
 const configDir = path.join(os.homedir(), '.huginbot');

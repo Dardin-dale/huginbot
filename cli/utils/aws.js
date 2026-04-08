@@ -14,7 +14,7 @@ const ora = require('ora');
 const chalk = require('chalk');
 const fs = require('fs');
 const path = require('path');
-require('dotenv').config(); // Load .env file variables
+process.loadEnvFile(); // Load .env file variables
 const { getConfig, saveConfig } = require('./config');
 
 /**

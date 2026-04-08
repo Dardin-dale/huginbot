@@ -68,7 +68,7 @@ The project is an aws harness for the https://github.com/lloesche/valheim-server
   });
   const getMock = () => (global as any).__mockFn as jest.Mock;
   ```
-- For ES module default exports (like axios), use `__esModule: true`
+- For global APIs (like fetch), mock on `global` and store reference for test access
 - Tests should be isolated and not depend on each other
 - Test error handling paths with specific error types
 - CDK tests use snapshot testing - update snapshots with `npm test -- -u` when infrastructure changes intentionally

@@ -1,7 +1,5 @@
-const axios = require('axios');
-
-// Mock axios
-jest.mock('axios');
+// Mock global fetch
+global.fetch = jest.fn();
 
 describe('Discord Webhook Integration - Simple Test', () => {
   // Example webhook URL format
@@ -10,37 +8,47 @@ describe('Discord Webhook Integration - Simple Test', () => {
   beforeEach(() => {
     // Reset all mocks
     jest.clearAllMocks();
-    
+
     // Default mock implementation for successful calls
-    axios.post = jest.fn().mockResolvedValue({ status: 200, data: 'success' });
+    fetch.mockResolvedValue({ ok: true, status: 204 });
   });
 
   test('should send notifications to Discord webhook', async () => {
-    // Send a test message to the webhook
-    await axios.post(testWebhookUrl, {
+    const payload = {
       username: 'HuginBot',
       content: 'Server is starting...'
+    };
+
+    // Send a test message to the webhook
+    await fetch(testWebhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
     });
-    
-    // Verify axios post was called with correct parameters
-    expect(axios.post).toHaveBeenCalledWith(
+
+    // Verify fetch was called with correct parameters
+    expect(fetch).toHaveBeenCalledWith(
       testWebhookUrl,
-      {
-        username: 'HuginBot',
-        content: 'Server is starting...'
-      }
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify(payload),
+      })
     );
   });
 
   test('should handle webhook posting error gracefully', async () => {
-    // Mock axios post failure
-    axios.post.mockImplementationOnce(() => Promise.reject(new Error('Failed to post to webhook')));
-    
+    // Mock fetch failure
+    fetch.mockImplementationOnce(() => Promise.reject(new Error('Failed to post to webhook')));
+
     // Attempt to send message to webhook
     await expect(
-      axios.post(testWebhookUrl, {
-        username: 'HuginBot',
-        content: 'Test message'
+      fetch(testWebhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: 'HuginBot',
+          content: 'Test message'
+        }),
       })
     ).rejects.toThrow('Failed to post to webhook');
   });

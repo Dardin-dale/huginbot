@@ -12,7 +12,7 @@ const {
   getRegisteredCommands, 
   compareCommands 
 } = require('./lib/discord-commands');
-require('dotenv').config();
+process.loadEnvFile();
 
 // Use the shared command definitions
 const commands = DISCORD_COMMANDS;

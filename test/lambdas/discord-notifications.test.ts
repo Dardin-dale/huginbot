@@ -16,20 +16,14 @@ jest.mock('@aws-sdk/client-ssm', () => {
   };
 });
 
-// Mock axios - store the post mock in global
-// Must handle ES module default export properly
-jest.mock('axios', () => {
-  const mockPost = jest.fn();
-  (global as any).__mockAxiosPost = mockPost;
-  return {
-    default: { post: mockPost },
-    __esModule: true,
-  };
-});
+// Mock global fetch - store in global for test access
+const mockFetch = jest.fn();
+(global as any).__mockFetch = mockFetch;
+global.fetch = mockFetch as any;
 
 // Get references to the actual mocks
 const getMockSsmSend = () => (global as any).__mockSsmSend as jest.Mock;
-const getMockAxiosPost = () => (global as any).__mockAxiosPost as jest.Mock;
+const getMockFetch = () => (global as any).__mockFetch as jest.Mock;
 
 // Import after mocking
 import { handler } from '../../lib/lambdas/discord-notifications';
@@ -49,6 +43,12 @@ describe('Discord Notifications Lambda', () => {
     fail: jest.fn(),
     succeed: jest.fn(),
   } as Context;
+
+  // Helper to extract the parsed body from a fetch call
+  const getFetchBody = (callIndex = 0): any => {
+    const call = getMockFetch().mock.calls[callIndex];
+    return JSON.parse(call[1].body);
+  };
 
   // Helper to setup SSM mocks with webhook
   const setupWebhookMock = () => {
@@ -81,8 +81,8 @@ describe('Discord Notifications Lambda', () => {
   beforeEach(() => {
     // Reset mocks between tests
     getMockSsmSend().mockReset();
-    getMockAxiosPost().mockReset();
-    getMockAxiosPost().mockResolvedValue({ status: 200 });
+    getMockFetch().mockReset();
+    getMockFetch().mockResolvedValue({ ok: true, status: 204 });
 
     // Default SSM responses - no webhook configured
     getMockSsmSend().mockRejectedValue({ name: 'ParameterNotFound' });
@@ -108,7 +108,7 @@ describe('Discord Notifications Lambda', () => {
       await handler(event, mockContext);
 
       // Verify axios was called with the webhook URL
-      expect(getMockAxiosPost()).toHaveBeenCalledWith(
+      expect(getMockFetch()).toHaveBeenCalledWith(
         'https://discord.com/api/webhooks/123/abc',
         expect.any(Object)
       );
@@ -121,7 +121,7 @@ describe('Discord Notifications Lambda', () => {
       await handler(event, mockContext);
 
       // Webhook URL lookup fails silently (no axios call)
-      expect(getMockAxiosPost()).not.toHaveBeenCalled();
+      expect(getMockFetch()).not.toHaveBeenCalled();
     });
   });
 
@@ -132,26 +132,15 @@ describe('Discord Notifications Lambda', () => {
       const event = createEvent('PlayFab.JoinCodeDetected', { joinCode: 'ABCD1234' });
       await handler(event, mockContext);
 
-      expect(getMockAxiosPost()).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.objectContaining({
-          username: 'HuginBot',
-          embeds: expect.arrayContaining([
-            expect.objectContaining({
-              title: expect.stringContaining('Ready'),
-              fields: expect.arrayContaining([
-                expect.objectContaining({
-                  name: 'World',
-                  value: 'TestWorld',
-                }),
-                expect.objectContaining({
-                  name: 'Join Code',
-                  value: '`ABCD1234`',
-                }),
-              ]),
-            }),
-          ]),
-        })
+      expect(getMockFetch()).toHaveBeenCalled();
+      const body = getFetchBody();
+      expect(body.username).toBe('HuginBot');
+      expect(body.embeds[0].title).toContain('Ready');
+      expect(body.embeds[0].fields).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ name: 'World', value: 'TestWorld' }),
+          expect.objectContaining({ name: 'Join Code', value: '`ABCD1234`' }),
+        ])
       );
     });
 
@@ -162,7 +151,7 @@ describe('Discord Notifications Lambda', () => {
       await handler(event, mockContext);
 
       // Should not call axios when join code is missing
-      expect(getMockAxiosPost()).not.toHaveBeenCalled();
+      expect(getMockFetch()).not.toHaveBeenCalled();
     });
   });
 
@@ -177,25 +166,14 @@ describe('Discord Notifications Lambda', () => {
       });
       await handler(event, mockContext);
 
-      expect(getMockAxiosPost()).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.objectContaining({
-          embeds: expect.arrayContaining([
-            expect.objectContaining({
-              title: expect.stringContaining('Backup'),
-              fields: expect.arrayContaining([
-                expect.objectContaining({
-                  name: 'World',
-                  value: 'TestWorld',
-                }),
-                expect.objectContaining({
-                  name: 'Size',
-                  value: expect.stringContaining('10'),
-                }),
-              ]),
-            }),
-          ]),
-        })
+      expect(getMockFetch()).toHaveBeenCalled();
+      const body = getFetchBody();
+      expect(body.embeds[0].title).toContain('Backup');
+      expect(body.embeds[0].fields).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ name: 'World', value: 'TestWorld' }),
+          expect.objectContaining({ name: 'Size', value: expect.stringContaining('10') }),
+        ])
       );
     });
   });
@@ -209,18 +187,11 @@ describe('Discord Notifications Lambda', () => {
       });
       await handler(event, mockContext);
 
-      expect(getMockAxiosPost()).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.objectContaining({
-          embeds: expect.arrayContaining([
-            expect.objectContaining({
-              title: expect.stringContaining('Shutdown Backup'),
-              description: expect.stringContaining('Backup saved'),
-              color: 0x2ecc71, // Green
-            }),
-          ]),
-        })
-      );
+      expect(getMockFetch()).toHaveBeenCalled();
+      const body = getFetchBody();
+      expect(body.embeds[0].title).toContain('Shutdown Backup');
+      expect(body.embeds[0].description).toContain('Backup saved');
+      expect(body.embeds[0].color).toBe(0x2ecc71);
     });
 
     test('sends warning notification when backup failed', async () => {
@@ -232,17 +203,10 @@ describe('Discord Notifications Lambda', () => {
       });
       await handler(event, mockContext);
 
-      expect(getMockAxiosPost()).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.objectContaining({
-          embeds: expect.arrayContaining([
-            expect.objectContaining({
-              description: expect.stringContaining('Disk full'),
-              color: 0xe67e22, // Orange
-            }),
-          ]),
-        })
-      );
+      expect(getMockFetch()).toHaveBeenCalled();
+      const body = getFetchBody();
+      expect(body.embeds[0].description).toContain('Disk full');
+      expect(body.embeds[0].color).toBe(0xe67e22);
     });
   });
 
@@ -256,17 +220,10 @@ describe('Discord Notifications Lambda', () => {
       });
       await handler(event, mockContext);
 
-      expect(getMockAxiosPost()).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.objectContaining({
-          embeds: expect.arrayContaining([
-            expect.objectContaining({
-              title: expect.stringContaining('Stopped'),
-              color: 0x95a5a6, // Gray
-            }),
-          ]),
-        })
-      );
+      expect(getMockFetch()).toHaveBeenCalled();
+      const body = getFetchBody();
+      expect(body.embeds[0].title).toContain('Stopped');
+      expect(body.embeds[0].color).toBe(0x95a5a6);
     });
 
     test('ignores non-stopped EC2 state changes', async () => {
@@ -279,7 +236,7 @@ describe('Discord Notifications Lambda', () => {
       await handler(event, mockContext);
 
       // Should not send notification for running state
-      expect(getMockAxiosPost()).not.toHaveBeenCalled();
+      expect(getMockFetch()).not.toHaveBeenCalled();
     });
   });
 
@@ -289,14 +246,14 @@ describe('Discord Notifications Lambda', () => {
       await handler(event, mockContext);
 
       // Should not call axios for unknown events
-      expect(getMockAxiosPost()).not.toHaveBeenCalled();
+      expect(getMockFetch()).not.toHaveBeenCalled();
     });
   });
 
   describe('Error Handling', () => {
     test('continues silently when Discord webhook fails', async () => {
       setupWebhookMock();
-      getMockAxiosPost().mockRejectedValue(new Error('Discord API Error'));
+      getMockFetch().mockRejectedValue(new Error('Discord API Error'));
 
       const event = createEvent('PlayFab.JoinCodeDetected', { joinCode: 'ABCD1234' });
 
