@@ -101,7 +101,7 @@ For detailed explanation of each variable, see:
 - [.env.example](../.env.example) - Full configuration with comments
 - [AWS Setup Guide](../docs/aws-setup.md) - AWS-specific settings
 - [Discord Setup Guide](../docs/discord-setup.md) - Discord configuration
-- [lloesche/valheim-server-docker](https://github.com/lloesche/valheim-server-docker#environment-variables) - Docker container variables
+- [community-valheim-tools/valheim-server-docker](https://github.com/community-valheim-tools/valheim-server-docker#environment-variables) - Docker container variables
 
 ## Getting Help
 

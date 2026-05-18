@@ -402,7 +402,7 @@ The auto-shutdown feature ensures you only pay while playing!
 
 ### Docker Container
 
-- **[lloesche/valheim-server-docker](https://github.com/lloesche/valheim-server-docker)** - Underlying Docker container
+- **[community-valheim-tools/valheim-server-docker](https://github.com/community-valheim-tools/valheim-server-docker)** - Underlying Docker container (maintained fork of the original `lloesche/valheim-server-docker`, used as a drop-in replacement)
   - Full list of environment variables
   - Mod support (BepInEx)
   - Advanced configuration options
