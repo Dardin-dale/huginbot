@@ -564,7 +564,7 @@ EOF`,
         const backupCleanupFunction = new NodejsFunction(this, 'BackupCleanupFunction', {
             runtime: Runtime.NODEJS_18_X,
             handler: 'handler',
-            entry: path.join(__dirname, '../../lib/lambdas/cleanup-backups.ts'),
+            entry: path.join(__dirname, '../lambdas/cleanup-backups.ts'),
             environment: {
                 BACKUP_BUCKET_NAME: this.backupBucket.bucketName,
                 BACKUPS_TO_KEEP: backupsToKeep.toString(),
@@ -659,7 +659,7 @@ EOF`,
         // Create Discord Commands Lambda function
         const commandsFunction = new NodejsFunction(this, "CommandsFunction", {
             ...lambdaDefaultProps,
-            entry: "lib/lambdas/commands.ts",
+            entry: path.join(__dirname, '../lambdas/commands.ts'),
             handler: "handler",
         });
         

@@ -10,6 +10,7 @@
 # Allow module JavaScript files (.mjs)
 !*.mjs
 *.d.ts
+dist/
 node_modules
 .env
 huginbot-config.json

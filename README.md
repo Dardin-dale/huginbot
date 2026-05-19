@@ -13,7 +13,7 @@
 
 A cost-effective AWS-based Valheim server manager with Discord integration. Start, stop, and manage your Valheim server directly from Discord while only paying for the time you play.
 
-## 🎮 Key Features
+## Key Features
 
 - **Discord Bot Integration** - Control your server with slash commands
 - **Custom Domain Support** - Connect via your own domain (e.g., `valheim.yourdomain.com`) instead of join codes
@@ -26,7 +26,7 @@ A cost-effective AWS-based Valheim server manager with Discord integration. Star
 - **Secure Configuration** - Discord webhooks and settings stored in AWS SSM Parameter Store
 - **Cost-Effective** - Pay only when playing (~$0.05/hour for t3.medium)
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 
@@ -148,7 +148,7 @@ The server takes 5-10 minutes to fully start. Once ready, the join code will be 
 
 **🎮 You're ready to play Valheim!**
 
-## 📝 Configuration
+## Configuration
 
 ### Environment Variables
 
@@ -295,7 +295,7 @@ BACKUPS_TO_KEEP=7                    # Keep 7 days of S3 backups
 - **S3 backups**: `s3://your-bucket/worlds/world-name/backup-timestamp.tar.gz`
 - **Retention**: Automatic cleanup based on count and age limits
 
-## 🤖 Discord Commands
+## Discord Commands
 
 | Command | Description |
 |---------|-------------|
@@ -320,7 +320,7 @@ BACKUPS_TO_KEEP=7                    # Keep 7 days of S3 backups
 
 ![Server Shutdown Example](images/Server_shutdown.jpg)
 
-## 🖥️ CLI Management
+## CLI Management
 
 Launch the interactive CLI:
 
@@ -349,7 +349,7 @@ npm run cli -- mods search <term>  # Search Thunderstore
 npm run cli -- worlds list         # List configured worlds
 ```
 
-## 💰 Cost Breakdown
+## Cost Breakdown
 
 - **EC2 Instance**: ~$0.05/hour when running (t3.medium)
 - **Lambda/API Gateway**: Usually free tier
@@ -359,7 +359,7 @@ npm run cli -- worlds list         # List configured worlds
 
 The auto-shutdown feature ensures you only pay while playing!
 
-## 📚 Documentation
+## Documentation
 
 ### Setup Guides
 
@@ -407,76 +407,11 @@ The auto-shutdown feature ensures you only pay while playing!
   - Mod support (BepInEx)
   - Advanced configuration options
 
-## 🔧 Troubleshooting
+## Troubleshooting
 
-**📖 For detailed troubleshooting, see the [Troubleshooting Guide](docs/troubleshooting.md)**
+See the [Troubleshooting Guide](docs/troubleshooting.md) for common issues (Discord commands, server start failures, join codes, backups, mods). When in doubt, the relevant CloudWatch log groups are `ValheimDiscordBot-ApiLambda` and `ValheimDiscordBot-CommandsLambda`.
 
-Common quick fixes:
-
-### Discord Commands Not Working
-
-1. Verify the API Gateway URL is correctly set in Discord Developer Portal
-2. Check CloudWatch Logs: `ValheimDiscordBot-ApiLambda`
-3. Ensure bot has proper permissions in your Discord server
-
-### Server Won't Start
-
-1. Check your AWS service limits
-2. Verify world is configured for your Discord server:
-   ```bash
-   npm run cli → "World Management" → "List Worlds"
-   ```
-3. Check CloudWatch Logs: `ValheimDiscordBot-CommandsLambda`
-
-### No Join Code in Discord
-
-- The server takes 5-10 minutes to fully start
-- Check if PlayFab is properly initialized
-- Ensure Discord webhook is set up with `/setup`
-
-### World Not Found
-
-Each Discord server needs a world configured:
-```bash
-npm run cli → "World Management" → "Add World"
-```
-Enter your Discord server ID when prompted.
-
-### Discord Notifications Not Working
-
-1. Run `/setup` again in your Discord channel
-2. Check AWS Secrets Manager for webhook secret
-3. Verify the channel allows webhook posts
-4. Check CloudWatch Logs for webhook errors
-
-### Backup Issues
-
-**Container backups not working:**
-1. Check Docker container logs: `docker logs valheim-server`
-2. Verify backup settings in `.env` file
-3. Ensure `/config/backups` directory has proper permissions
-
-**Manual backup fails:**
-1. Server must be running to create backups
-2. Check S3 bucket permissions and storage space
-3. Review CloudWatch logs for SSM command execution
-
-**Missing backups:**
-1. Check `DOCKER_BACKUP_IF_IDLE` setting - may not backup when no players
-2. Verify backup schedule with `DOCKER_BACKUP_CRON`
-3. Check backup retention settings (`MAX_COUNT`, `MAX_AGE`)
-
-### Mod Issues
-
-**Mods not loading:**
-1. Verify BepInEx is enabled: `WORLD_X_BEPINEX=true`
-2. Check mod is in library: `npm run cli -- mods list`
-3. Verify mod is assigned to world in `.env`
-4. Check server logs for BepInEx loading messages
-
-**See the [Mod Management Guide](docs/mods.md#troubleshooting) for detailed troubleshooting.**
-
-## 🏗️ Architecture
+## Architecture
 
 ```
 Discord → API Gateway → Lambda → EC2/Docker
@@ -502,7 +437,7 @@ Discord → API Gateway → Lambda → EC2/Docker
 - No manual secret creation required - fully automated
 - Webhook URLs can be updated anytime via `/setup` command
 
-## 🛠️ Development
+## Development
 
 ### Build and Test
 
@@ -526,24 +461,16 @@ npm run deploy:all     # Same as deploy
 npm run destroy:all    # Remove all resources
 ```
 
-## 📋 Roadmap
+## Roadmap
 
-- [x] Basic server management
-- [x] Discord integration
-- [x] Multi-world support
-- [x] Automated backups
-- [x] Interactive CLI
-- [x] Secure webhook storage
-- [x] World-specific configurations
-- [x] Mod management interface
 - [ ] TUI dashboard
 - [ ] Player statistics tracking
 
-## 🤝 Contributing
+## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
 
-## 📄 License
+## License
 
 MIT License - see LICENSE file for details
 

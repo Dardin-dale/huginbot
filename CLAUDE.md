@@ -25,7 +25,7 @@ The project is an aws harness for the https://github.com/community-valheim-tools
 - Clean up SSM parameters: `npm run cleanup`
 
 ## Environment Setup
-1. Copy `.env.template` to `.env` and configure:
+1. Copy `.env.example` to `.env` and configure:
    - AWS credentials and region
    - Discord application settings (ID, public key, bot token)
    - Initial Valheim server configuration
@@ -195,4 +195,3 @@ When helping users configure HuginBot, here are common tasks:
 - Billing and metering integration
 - Enhanced security boundaries
 - Account management systems
-- The fargate and EFS valheim comes from my groups active game server, Do not delete!
