@@ -38,10 +38,8 @@ jest.mock('../../lib/lambdas/utils/aws-clients', () => {
     s3Client: { send: mockS3Send },
     VALHEIM_INSTANCE_ID: 'i-1234567890abcdef0',
     BACKUP_BUCKET_NAME: 'test-backup-bucket',
-    DISCORD_AUTH_TOKEN: 'test-auth-token',
     SSM_PARAMS: {
       PLAYFAB_JOIN_CODE: '/huginbot/playfab-join-code',
-      PLAYFAB_JOIN_CODE_TIMESTAMP: '/huginbot/playfab-join-code-timestamp',
       ACTIVE_WORLD: '/huginbot/active-world',
       DISCORD_WEBHOOK: '/huginbot/discord-webhook',
       AUTO_SHUTDOWN_MINUTES: '/huginbot/auto-shutdown-minutes',
@@ -51,7 +49,6 @@ jest.mock('../../lib/lambdas/utils/aws-clients', () => {
     getInstanceStatus: jest.fn(),
     getInstanceDetails: jest.fn(),
     getFastServerStatus: mockGetFastServerStatus,
-    getDetailedServerStatus: jest.fn(),
     getStatusMessage: mockGetStatusMessage,
   };
 });

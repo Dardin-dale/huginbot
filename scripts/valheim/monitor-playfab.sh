@@ -74,11 +74,9 @@ while true; do
       
       # Store in SSM Parameter Store
       aws ssm put-parameter --name "$PARAM_NAME" --type "String" --value "$JOIN_CODE" --overwrite --region "$REGION"
-      
-      # Also store timestamp of when we found it
+
       TIMESTAMP=$(date +%s)
-      aws ssm put-parameter --name "$PARAM_NAME-timestamp" --type "String" --value "$TIMESTAMP" --overwrite --region "$REGION"
-      
+
       # Send event to EventBridge
       aws events put-events --entries '[{
         "Source": "valheim.server",

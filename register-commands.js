@@ -123,17 +123,19 @@ async function checkRegisteredCommands() {
   }
 }
 
-// Handle command line arguments
-const args = process.argv.slice(2);
-if (args.includes('--check') || args.includes('-c')) {
-  checkRegisteredCommands();
-} else if (args.includes('--help') || args.includes('-h')) {
-  console.log('Discord Commands Management');
-  console.log('');
-  console.log('Usage:');
-  console.log('  npm run register-commands          Register commands with Discord');
-  console.log('  npm run register-commands --check  Check what commands are registered');
-  console.log('  npm run register-commands --help   Show this help');
-} else {
-  registerCommands();
+// Only run when invoked directly (not when require()'d for testing/inspection).
+if (require.main === module) {
+  const args = process.argv.slice(2);
+  if (args.includes('--check') || args.includes('-c')) {
+    checkRegisteredCommands();
+  } else if (args.includes('--help') || args.includes('-h')) {
+    console.log('Discord Commands Management');
+    console.log('');
+    console.log('Usage:');
+    console.log('  npm run register-commands          Register commands with Discord');
+    console.log('  npm run register-commands --check  Check what commands are registered');
+    console.log('  npm run register-commands --help   Show this help');
+  } else {
+    registerCommands();
+  }
 }

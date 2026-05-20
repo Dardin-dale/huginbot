@@ -110,9 +110,9 @@ interface ValheimServerAwsCdkStackProps extends StackProps {
     instanceType?: InstanceType;
     /**
      * Size of data volume in GB
-     * Default: 16
+     * Default: 12
      */
-    dataVolumeSize?: number;  // Default: 16
+    dataVolumeSize?: number;  // Default: 12
     /**
      * How often to run backups (in hours)
      * Default: 24 (once per day)
@@ -163,7 +163,7 @@ export class ValheimServerAwsCdkStack extends Stack {
         const serverName = props?.serverName || "ValheimServer";
         const worldName = props?.worldName || "ValheimWorld";
         const instanceType = props?.instanceType || InstanceType.of(InstanceClass.T3, InstanceSize.MEDIUM);
-        const dataVolumeSize = props?.dataVolumeSize || 16;
+        const dataVolumeSize = props?.dataVolumeSize || 12;
         const backupFrequencyHours = props?.backupFrequencyHours || 24;
         const backupsToKeep = props?.backupsToKeep || 7;
         const modsDirectory = props?.modsDirectory || "./mods";
@@ -347,9 +347,6 @@ export class ValheimServerAwsCdkStack extends Stack {
             "echo '/dev/nvme1n1 /mnt/valheim-data ext4 defaults 0 2' >> /etc/fstab",
             "mount -a",
 
-            // Expand filesystem to fill volume if it was resized
-            "resize2fs /dev/nvme1n1",
-
             // Create directories
             "mkdir -p /mnt/valheim-data/config",
             "mkdir -p /mnt/valheim-data/backups",
@@ -519,7 +516,7 @@ EOF`,
             properties: {
                 VolumeId: dataVolume.ref,
                 // Trigger update when deployment version changes
-                DeploymentVersion: '2025-01-14-v1',
+                DeploymentVersion: '2026-05-19-v1',
             },
         });
 
@@ -547,7 +544,7 @@ EOF`,
         });
 
         // Add deployment version tag to force replacement when needed
-        Tags.of(this.ec2Instance).add('DeploymentVersion', '2025-01-14-v1');
+        Tags.of(this.ec2Instance).add('DeploymentVersion', '2026-05-19-v1');
 
         // Ensure volume is detached from old instances before new instance is created
         this.ec2Instance.node.addDependency(volumeDetach);
@@ -584,18 +581,9 @@ EOF`,
         rule.addTarget(new LambdaFunction(backupCleanupFunction));
 
         // ====== DISCORD INTEGRATION ======
-        
-        // Generate auth token for Discord integration
-        const discordAuthToken = this.generateRandomToken();
-        
+
         // Use a unique parameter name based on stack ID to avoid conflicts in tests
         const parameterSuffix = this.node.tryGetContext('testing') ? `-${this.node.id}` : '';
-
-        const authTokenParam = new StringParameter(this, "DiscordAuthToken", {
-            parameterName: `/huginbot/discord-auth-token${parameterSuffix}`,
-            stringValue: discordAuthToken,
-            description: "Authentication token for Discord integration",
-        });
 
         // Store backup bucket name in SSM for EC2 scripts to access
         new StringParameter(this, "BackupBucketParam", {
@@ -619,7 +607,6 @@ EOF`,
         // Create Lambda common environment variables
         const lambdaEnv: { [key: string]: string } = {
             VALHEIM_INSTANCE_ID: this.ec2Instance.instanceId,
-            DISCORD_AUTH_TOKEN: discordAuthToken,
             BACKUP_BUCKET_NAME: this.backupBucket.bucketName,
             DISCORD_BOT_PUBLIC_KEY: process.env.DISCORD_BOT_PUBLIC_KEY || '',
             DISCORD_BOT_TOKEN: process.env.DISCORD_BOT_SECRET_TOKEN || '',
@@ -953,11 +940,6 @@ EOF`,
             exportName: `HuginbotApiEndpoint${parameterSuffix}`,
         });
 
-        new CfnOutput(this, "AuthTokenOutput", {
-            value: discordAuthToken,
-            description: "Auth token for Discord integration",
-            exportName: `HuginbotDiscordAuthToken${parameterSuffix}`,
-        });
     }
 
     private get removalPolicy() {
@@ -968,11 +950,4 @@ EOF`,
                 : undefined; // Default behavior (DESTROY would be safer for testing)
     }
 
-    private generateRandomToken(): string {
-        // Use Node.js crypto module for cryptographically secure random token
-        const crypto = require('crypto');
-        // Generate 32 bytes (256 bits) of secure random data and convert to hex
-        return crypto.randomBytes(32).toString('hex');
-    }
-    
 }

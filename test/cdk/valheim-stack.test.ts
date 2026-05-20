@@ -59,19 +59,7 @@ describe('ValheimServerAwsCdkStack', () => {
       // Get template and sanitize dynamic values before snapshot comparison
       const templateJson = template.toJSON();
 
-      // Sanitize auth token values which are randomly generated
-      const sanitized = JSON.parse(JSON.stringify(templateJson), (key, value) => {
-        // Replace auth token values with a placeholder
-        if (key === 'Value' && typeof value === 'string' && value.length === 64 && /^[a-f0-9]+$/.test(value)) {
-          return 'AUTH_TOKEN_PLACEHOLDER';
-        }
-        if (key === 'DISCORD_AUTH_TOKEN' && typeof value === 'string' && value.length === 64) {
-          return 'AUTH_TOKEN_PLACEHOLDER';
-        }
-        return value;
-      });
-
-      expect(sanitized).toMatchSnapshot();
+      expect(templateJson).toMatchSnapshot();
     });
   });
 

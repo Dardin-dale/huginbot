@@ -22,7 +22,6 @@ import {
   getInstanceStatus,
   getStatusMessage,
   getFastServerStatus,
-  getDetailedServerStatus,
 } from "../utils/aws-clients";
 import {
   createSuccessResponse,
