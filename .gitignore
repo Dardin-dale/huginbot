@@ -7,6 +7,8 @@
 !register-commands.js
 # Allow bin directory scripts
 !bin/*.js
+# Allow hand-written JS modules in lib/ (compiled .ts output stays gitignored via dist/)
+!lib/discord-commands.js
 # Allow module JavaScript files (.mjs)
 !*.mjs
 *.d.ts
