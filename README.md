@@ -11,6 +11,8 @@
 
 # HuginBot
 
+> **Succeeded by [GATEKeeper](https://github.com/Dardin-dale/gatekeeper)** — a multi-game evolution of this project that generalizes the Valheim-only design onto a `GameProfile` framework (Abiotic Factor, Valheim, and more). HuginBot remains here as the Valheim-only original.
+
 A cost-effective AWS-based Valheim server manager with Discord integration. Start, stop, and manage your Valheim server directly from Discord while only paying for the time you play.
 
 ## Key Features
